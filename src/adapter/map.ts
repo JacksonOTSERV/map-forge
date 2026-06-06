@@ -1,0 +1,119 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
+
+import { MapMeta, Position, ChunkTiles, OtbmProgress } from '~/domain/map';
+
+export const packChunkKey = (cx: number, cy: number): number => (cx << 16) | cy;
+
+function toUint8(response: Uint8Array | ArrayBuffer): Uint8Array {
+  return response instanceof Uint8Array ? response : new Uint8Array(response);
+}
+
+function decodeMeta(buffer: Uint8Array): MapMeta {
+  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  let o = 0;
+  const width = view.getUint16(o, true);
+  o += 2;
+  const height = view.getUint16(o, true);
+  o += 2;
+  const minX = view.getUint16(o, true);
+  o += 2;
+  const minY = view.getUint16(o, true);
+  o += 2;
+  const maxX = view.getUint16(o, true);
+  o += 2;
+  const maxY = view.getUint16(o, true);
+  o += 2;
+  const tileCount = view.getUint32(o, true);
+  o += 4;
+
+  const floorCount = view.getUint8(o);
+  o += 1;
+  const floors: number[] = [];
+  for (let i = 0; i < floorCount; i++) {
+    floors.push(view.getUint8(o));
+    o += 1;
+  }
+
+  const teleports = new Map<string, Position>();
+  const teleportCount = view.getUint32(o, true);
+  o += 4;
+  for (let i = 0; i < teleportCount; i++) {
+    const sx = view.getUint16(o, true);
+    const sy = view.getUint16(o + 2, true);
+    const sz = view.getUint8(o + 4);
+    const dx = view.getUint16(o + 5, true);
+    const dy = view.getUint16(o + 7, true);
+    const dz = view.getUint8(o + 9);
+    o += 10;
+    teleports.set(`${sx},${sy},${sz}`, { x: dx, y: dy, z: dz });
+  }
+
+  return { width, height, tileCount, bounds: { minX, minY, maxX, maxY }, teleports, floors };
+}
+
+export async function openOtbm(path: string, onProgress?: OtbmProgress): Promise<MapMeta> {
+  let unlisten: UnlistenFn | undefined;
+  if (onProgress) {
+    unlisten = await listen<number>('otbm_progress', (e) => onProgress('parse', e.payload));
+  }
+  try {
+    const response = await invoke<Uint8Array | ArrayBuffer>('open_otbm', { path });
+    return decodeMeta(toUint8(response));
+  } finally {
+    unlisten?.();
+  }
+}
+
+export async function fetchMapChunks(z: number, keys: number[]): Promise<Map<string, ChunkTiles>> {
+  const result = new Map<string, ChunkTiles>();
+  if (keys.length === 0) return result;
+
+  const response = await invoke<Uint8Array | ArrayBuffer>('get_map_chunks', { z, keys });
+  const u8 = toUint8(response);
+  const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+
+  let o = 0;
+  const chunkCount = view.getUint32(o, true);
+  o += 4;
+  for (let c = 0; c < chunkCount; c++) {
+    const cx = view.getUint16(o, true);
+    o += 2;
+    const cy = view.getUint16(o, true);
+    o += 2;
+    const tileCount = view.getUint32(o, true);
+    o += 4;
+
+    const tileX = new Uint16Array(tileCount);
+    const tileY = new Uint16Array(tileCount);
+    const itemOffset = new Uint32Array(tileCount + 1);
+    const clientList: number[] = [];
+    const serverList: number[] = [];
+    let acc = 0;
+    for (let t = 0; t < tileCount; t++) {
+      tileX[t] = view.getUint16(o, true);
+      o += 2;
+      tileY[t] = view.getUint16(o, true);
+      o += 2;
+      const nItems = view.getUint16(o, true);
+      o += 2;
+      itemOffset[t] = acc;
+      for (let j = 0; j < nItems; j++) {
+        clientList.push(view.getUint16(o, true));
+        o += 2;
+        serverList.push(view.getUint16(o, true));
+        o += 2;
+      }
+      acc += nItems;
+    }
+    itemOffset[tileCount] = acc;
+    result.set(`${cx},${cy}`, {
+      tileX,
+      tileY,
+      itemOffset,
+      clientIds: Uint16Array.from(clientList),
+      serverIds: Uint16Array.from(serverList)
+    });
+  }
+  return result;
+}

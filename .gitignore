@@ -1,36 +1,45 @@
-# Prerequisites
-*.d
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# Build output
+dist/
+dist-ssr/
+build/
+*.local
 
-# Precompiled Headers
-*.gch
-*.pch
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Fortran module files
-*.mod
-*.smod
+# Editors / IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+# OS
+.DS_Store
+Thumbs.db
 
-# Executables
-*.exe
-*.out
-*.app
+# Environment
+.env
+.env.*
+!.env.example
 
-.idea
-
-cmake-build-*/
+# Bundled client assets - large binaries / copyrighted client data.
+# Track via Git LFS or fetch out-of-band; do not bloat git history.
+/data/

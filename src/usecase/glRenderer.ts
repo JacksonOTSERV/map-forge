@@ -1,0 +1,192 @@
+const TILE = 32;
+const ATLAS_DIM = 4096;
+const ATLAS_COLS = ATLAS_DIM / TILE;
+export const ATLAS_SLOTS = ATLAS_COLS * ATLAS_COLS;
+
+const VERT_SRC = `#version 300 es
+layout(location=0) in vec2 aCorner;
+layout(location=1) in vec2 aPos;
+layout(location=2) in vec2 aUV;
+uniform vec2 uCam;
+uniform float uScale;
+uniform vec2 uViewport;
+out vec2 vUV;
+const float T = ${TILE.toFixed(1)};
+const float A = ${ATLAS_DIM.toFixed(1)};
+void main() {
+	vec2 world = aPos + aCorner * T;
+	vec2 screen = (world - uCam) * uScale;
+	vec2 clip = (screen / uViewport) * 2.0 - 1.0;
+	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+	vUV = aUV + aCorner * (T / A);
+}`;
+
+const FRAG_SRC = `#version 300 es
+precision mediump float;
+in vec2 vUV;
+uniform sampler2D uAtlas;
+out vec4 frag;
+void main() {
+	vec4 c = texture(uAtlas, vUV);
+	if (c.a < 0.01) discard;
+	frag = c;
+}`;
+
+const FLOATS_PER_INSTANCE = 4;
+
+export function slotUV(slot: number): { u0: number; v0: number } {
+  const col = slot % ATLAS_COLS;
+  const row = Math.floor(slot / ATLAS_COLS);
+  return { u0: (col * TILE) / ATLAS_DIM, v0: (row * TILE) / ATLAS_DIM };
+}
+
+interface ChunkMesh {
+  buffer: WebGLBuffer;
+  count: number;
+}
+
+export class GLRenderer {
+  private gl: WebGL2RenderingContext;
+  private program: WebGLProgram;
+  private vao: WebGLVertexArrayObject;
+  private quad: WebGLBuffer;
+  private atlas: WebGLTexture;
+  private uCam: WebGLUniformLocation;
+  private uScale: WebGLUniformLocation;
+  private uViewport: WebGLUniformLocation;
+  private meshes = new Map<string, ChunkMesh>();
+
+  constructor(canvas: HTMLCanvasElement) {
+    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, premultipliedAlpha: false });
+    if (!gl) throw new Error('WebGL2 is not available');
+    this.gl = gl;
+
+    this.program = this.link(VERT_SRC, FRAG_SRC);
+    this.uCam = gl.getUniformLocation(this.program, 'uCam')!;
+    this.uScale = gl.getUniformLocation(this.program, 'uScale')!;
+    this.uViewport = gl.getUniformLocation(this.program, 'uViewport')!;
+
+    this.vao = gl.createVertexArray()!;
+    gl.bindVertexArray(this.vao);
+    this.quad = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(0, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribDivisor(1, 1);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribDivisor(2, 1);
+    gl.bindVertexArray(null);
+
+    this.atlas = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.atlas);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ATLAS_DIM, ATLAS_DIM, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  private link(vs: string, fs: string): WebGLProgram {
+    const gl = this.gl;
+    const compile = (type: number, src: string) => {
+      const sh = gl.createShader(type)!;
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        const log = gl.getShaderInfoLog(sh);
+        gl.deleteShader(sh);
+        throw new Error(`Shader compile failed: ${log}`);
+      }
+      return sh;
+    };
+    const program = gl.createProgram()!;
+    const v = compile(gl.VERTEX_SHADER, vs);
+    const f = compile(gl.FRAGMENT_SHADER, fs);
+    gl.attachShader(program, v);
+    gl.attachShader(program, f);
+    gl.linkProgram(program);
+    gl.deleteShader(v);
+    gl.deleteShader(f);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(`Program link failed: ${gl.getProgramInfoLog(program)}`);
+    }
+    return program;
+  }
+
+  uploadSprite(slot: number, rgba: Uint8Array) {
+    const gl = this.gl;
+    const col = slot % ATLAS_COLS;
+    const row = Math.floor(slot / ATLAS_COLS);
+    gl.bindTexture(gl.TEXTURE_2D, this.atlas);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, col * TILE, row * TILE, TILE, TILE, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+  }
+
+  setChunkMesh(key: string, data: Float32Array) {
+    const gl = this.gl;
+    let mesh = this.meshes.get(key);
+    if (!mesh) {
+      mesh = { buffer: gl.createBuffer()!, count: 0 };
+      this.meshes.set(key, mesh);
+    }
+    mesh.count = data.length / FLOATS_PER_INSTANCE;
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  }
+
+  hasChunkMesh(key: string): boolean {
+    return this.meshes.has(key);
+  }
+
+  deleteChunkMesh(key: string) {
+    const mesh = this.meshes.get(key);
+    if (!mesh) return;
+    this.gl.deleteBuffer(mesh.buffer);
+    this.meshes.delete(key);
+  }
+
+  beginFrame(bufW: number, bufH: number, camX: number, camY: number, scale: number) {
+    const gl = this.gl;
+    gl.viewport(0, 0, bufW, bufH);
+    gl.clearColor(0x11 / 255, 0x15 / 255, 0x1c / 255, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(this.program);
+    gl.bindVertexArray(this.vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.atlas);
+    gl.uniform2f(this.uCam, camX, camY);
+    gl.uniform1f(this.uScale, scale);
+    gl.uniform2f(this.uViewport, bufW, bufH);
+  }
+
+  drawChunkMesh(key: string) {
+    const mesh = this.meshes.get(key);
+    if (!mesh || mesh.count === 0) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.buffer);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 16, 8);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, mesh.count);
+  }
+
+  endFrame() {
+    this.gl.bindVertexArray(null);
+  }
+
+  dispose() {
+    const gl = this.gl;
+    for (const mesh of this.meshes.values()) gl.deleteBuffer(mesh.buffer);
+    this.meshes.clear();
+    gl.deleteTexture(this.atlas);
+    gl.deleteBuffer(this.quad);
+    gl.deleteVertexArray(this.vao);
+    gl.deleteProgram(this.program);
+  }
+}
