@@ -15,7 +15,7 @@ const float T = ${TILE.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
 	vec2 world = aPos + aCorner * T;
-	vec2 screen = (world - uCam) * uScale;
+	vec2 screen = floor((world - uCam) * uScale + 0.5);
 	vec2 clip = (screen / uViewport) * 2.0 - 1.0;
 	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
 	vUV = aUV + aCorner * (T / A);
