@@ -1,40 +1,61 @@
-import { PANELS, PanelId, DockZone, DockLayout, DOCK_ZONES, DEFAULT_DOCK_LAYOUT } from '~/domain/dock';
+import { PANELS, PanelId, DockZone, FloatRect, DockLayout, DOCK_ZONES, PanelPlacement, DEFAULT_DOCK_LAYOUT } from '~/domain/dock';
 
 const STORAGE_KEY = 'nosbor-dock-layout';
 
-export function zoneOf(layout: DockLayout, id: PanelId): DockZone | null {
-  return DOCK_ZONES.find((zone) => layout[zone].includes(id)) ?? null;
+const PANEL_IDS = Object.keys(PANELS) as PanelId[];
+
+export function dockZoneOf(layout: DockLayout, id: PanelId): DockZone | null {
+  const placement = layout[id];
+  return placement.kind === 'dock' ? placement.zone : null;
 }
 
-export function movePanel(layout: DockLayout, id: PanelId, to: DockZone): DockLayout {
-  const next: DockLayout = { left: [], right: [] };
-  for (const zone of DOCK_ZONES) next[zone] = layout[zone].filter((p) => p !== id);
-  next[to] = [...next[to], id];
-  return next;
+export function panelsInZone(layout: DockLayout, zone: DockZone): PanelId[] {
+  return PANEL_IDS.filter((id) => {
+    const placement = layout[id];
+    return placement.kind === 'dock' && placement.zone === zone;
+  });
+}
+
+export function floatingPanels(layout: DockLayout): PanelId[] {
+  return PANEL_IDS.filter((id) => layout[id].kind === 'float');
+}
+
+export function floatRectOf(layout: DockLayout, id: PanelId): FloatRect | null {
+  const placement = layout[id];
+  return placement.kind === 'float' ? placement.rect : null;
+}
+
+export function dockPanel(layout: DockLayout, id: PanelId, zone: DockZone): DockLayout {
+  return { ...layout, [id]: { kind: 'dock', zone } };
+}
+
+export function floatPanel(layout: DockLayout, id: PanelId, rect: FloatRect): DockLayout {
+  return { ...layout, [id]: { kind: 'float', rect } };
+}
+
+function isValidPlacement(value: unknown): value is PanelPlacement {
+  if (!value || typeof value !== 'object') return false;
+  const placement = value as Record<string, unknown>;
+  if (placement.kind === 'dock') return DOCK_ZONES.includes(placement.zone as DockZone);
+  if (placement.kind === 'float') {
+    const rect = placement.rect as Record<string, unknown> | undefined;
+    return !!rect && (['x', 'y', 'width', 'height'] as const).every((k) => typeof rect[k] === 'number');
+  }
+  return false;
 }
 
 export function loadDockLayout(): DockLayout {
+  const layout: DockLayout = { ...DEFAULT_DOCK_LAYOUT };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_DOCK_LAYOUT;
+    if (!raw) return layout;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const known = new Set(Object.keys(PANELS) as PanelId[]);
-    const placed = new Set<PanelId>();
-    const layout: DockLayout = { left: [], right: [] };
-    for (const zone of DOCK_ZONES) {
-      const ids = parsed[zone];
-      if (!Array.isArray(ids)) continue;
-      for (const id of ids) {
-        if (known.has(id) && !placed.has(id)) {
-          layout[zone].push(id);
-          placed.add(id);
-        }
-      }
+    for (const id of PANEL_IDS) {
+      if (isValidPlacement(parsed[id])) layout[id] = parsed[id] as PanelPlacement;
     }
-    for (const id of known) if (!placed.has(id)) layout[zoneOf(DEFAULT_DOCK_LAYOUT, id) ?? 'left'].push(id);
     return layout;
   } catch {
-    return DEFAULT_DOCK_LAYOUT;
+    return layout;
   }
 }
 

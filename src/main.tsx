@@ -29,9 +29,18 @@ import { ActiveBrush, PaletteData } from '~/domain/palette';
 import { MIN_ZOOM, MAX_ZOOM, snapZoom } from '~/usecase/zoom';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
-import { PANELS, PanelId, DockZone, DockLayout } from '~/domain/dock';
 import { loadAssets, LoadedAssets, DEFAULT_DATA_DIR } from '~/adapter/assets';
-import { zoneOf, movePanel, loadDockLayout, saveDockLayout } from '~/usecase/dock';
+import { PANELS, PanelId, DockZone, FloatRect, DockLayout, DEFAULT_FLOAT_WIDTH, DEFAULT_FLOAT_HEIGHT } from '~/domain/dock';
+import {
+  dockPanel,
+  floatPanel,
+  dockZoneOf,
+  floatRectOf,
+  panelsInZone,
+  floatingPanels,
+  loadDockLayout,
+  saveDockLayout
+} from '~/usecase/dock';
 
 import './styles/index.css';
 
@@ -75,6 +84,8 @@ const App = () => {
   const [hoverZone, setHoverZone] = React.useState<DockZone | null>(null);
   const [dragSettled, setDragSettled] = React.useState(false);
 
+  const workspaceRef = React.useRef<HTMLDivElement>(null);
+  const dragOrigin = React.useRef<{ left: number; top: number }>({ left: 0, top: 0 });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const active = tabs.find((t) => t.id === activeId) ?? null;
@@ -87,9 +98,10 @@ const App = () => {
     const id = event.active.id as PanelId;
     const el = document.querySelector(`[data-panel-id="${id}"]`);
     const rect = el?.getBoundingClientRect();
+    dragOrigin.current = { left: rect?.left ?? 0, top: rect?.top ?? 0 };
     setDragSize(rect ? { width: rect.width, height: rect.height } : null);
     setDragging(id);
-    setHoverZone(zoneOf(layout, id));
+    setHoverZone(dockZoneOf(layout, id));
   }
 
   function handleDragOver(event: DragOverEvent) {
@@ -97,15 +109,27 @@ const App = () => {
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    const id = event.active.id as PanelId;
     const zone = zoneFromId(event.over?.id);
     setDragging(null);
     setHoverZone(null);
-    if (!zone) return;
     setLayout((prev) => {
-      const next = movePanel(prev, event.active.id as PanelId, zone);
+      const next = zone ? dockPanel(prev, id, zone) : floatPanel(prev, id, dropRect(prev, id, event.delta));
       saveDockLayout(next);
       return next;
     });
+  }
+
+  function dropRect(layout: DockLayout, id: PanelId, delta: { x: number; y: number }): FloatRect {
+    const ws = workspaceRef.current?.getBoundingClientRect();
+    const prev = floatRectOf(layout, id);
+    const width = dragSize?.width ?? DEFAULT_FLOAT_WIDTH;
+    const height = prev ? (dragSize?.height ?? DEFAULT_FLOAT_HEIGHT) : DEFAULT_FLOAT_HEIGHT;
+    const rawX = dragOrigin.current.left + delta.x - (ws?.left ?? 0);
+    const rawY = dragOrigin.current.top + delta.y - (ws?.top ?? 0);
+    const x = Math.max(0, Math.min(rawX, (ws?.width ?? width) - width));
+    const y = Math.max(0, Math.min(rawY, (ws?.height ?? height) - height));
+    return { x, y, width, height };
   }
 
   React.useEffect(() => {
@@ -212,8 +236,9 @@ const App = () => {
   }
 
   const isRenderable = (id: PanelId) => id !== dragging && (id === 'palette' ? !!(assets && palette) : false);
-  const leftPanels = layout.left.filter(isRenderable);
-  const rightPanels = layout.right.filter(isRenderable);
+  const leftPanels = panelsInZone(layout, 'left').filter(isRenderable);
+  const rightPanels = panelsInZone(layout, 'right').filter(isRenderable);
+  const floating = floatingPanels(layout).filter(isRenderable);
 
   const slotSpace = (dragSize?.width ?? 0) + 6;
   const mapStyle = {
@@ -261,7 +286,7 @@ const App = () => {
         onDragStart={handleDragStart}
         collisionDetection={pointerWithin}
       >
-        <div className="relative flex min-h-0 flex-1 overflow-hidden bg-toolbar-bg p-1.5">
+        <div ref={workspaceRef} className="relative flex min-h-0 flex-1 overflow-hidden bg-toolbar-bg p-1.5">
           <PanelGroup direction="horizontal" autoSaveId="nosbor-main-layout">
             {leftPanels.length > 0 && (
               <>
@@ -340,6 +365,22 @@ const App = () => {
               </>
             )}
           </PanelGroup>
+
+          {floating.map((id) => {
+            const rect = floatRectOf(layout, id);
+            if (!rect) return null;
+            return (
+              <div
+                key={id}
+                className="absolute z-20"
+                style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+              >
+                <DockablePanel meta={PANELS[id]} className="h-full">
+                  {(handle) => renderPanel(id, handle)}
+                </DockablePanel>
+              </div>
+            );
+          })}
 
           {dragging && (
             <div className="pointer-events-none absolute inset-0 z-30 flex p-1.5">
