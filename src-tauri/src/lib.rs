@@ -390,6 +390,14 @@ fn move_item(
 }
 
 #[tauri::command]
+fn delete_item(map_id: u32, z: u8, x: u16, y: u16, map_state: tauri::State<MapState>) -> Result<(), String> {
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	tile_stack_mut(m, z, x, y).pop();
+	Ok(())
+}
+
+#[tauri::command]
 fn paint_tiles(
 	map_id: u32,
 	z: u8,
@@ -613,6 +621,7 @@ pub fn run() {
 			close_map,
 			paint_tiles,
 			move_item,
+			delete_item,
 			get_map_chunks,
 			set_window_acrylic
 		])

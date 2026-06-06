@@ -87,6 +87,10 @@ export async function paintTiles(
   await invoke('paint_tiles', { mapId, z, xs, ys, serverId, isGround });
 }
 
+export async function deleteItem(mapId: number, z: number, x: number, y: number): Promise<void> {
+  await invoke('delete_item', { mapId, z, x, y });
+}
+
 export async function moveItem(mapId: number, z: number, fromX: number, fromY: number, toX: number, toY: number): Promise<void> {
   await invoke('move_item', { mapId, z, fromX, fromY, toX, toY });
 }

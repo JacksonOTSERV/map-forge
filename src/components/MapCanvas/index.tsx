@@ -8,7 +8,7 @@ import { DRAW_CURSOR } from '~/usecase/cursors';
 import { Position, ChunkTiles } from '~/domain/map';
 import { visibleFloorRange } from '~/usecase/floors';
 import { slotUV, GLRenderer, ATLAS_SLOTS } from '~/usecase/glRenderer';
-import { moveItem, paintTiles, packChunkKey, fetchMapChunks } from '~/adapter/map';
+import { moveItem, deleteItem, paintTiles, packChunkKey, fetchMapChunks } from '~/adapter/map';
 
 import { HoverInfo, HoverItem, MapCanvasProps } from './types';
 
@@ -765,6 +765,18 @@ const MapCanvas = ({
       });
   }
 
+  function deleteSelected() {
+    const pos = selected.current;
+    if (!pos) return;
+    deleteItem(inputs.current.map.id, pos.z, pos.x, pos.y)
+      .then(() => refetchChunkNow(pos.x, pos.y, pos.z))
+      .then(() => {
+        spriteVersion.current++;
+        inputs.current.onSelect(hoverAt(pos).item);
+      })
+      .catch((err) => console.error('Failed to delete item', err));
+  }
+
   async function refetchChunkNow(x: number, y: number, z: number) {
     const cx = Math.floor(x / CHUNK);
     const cy = Math.floor(y / CHUNK);
@@ -830,11 +842,13 @@ const MapCanvas = ({
   function onContextMenu(e: React.MouseEvent) {
     e.preventDefault();
     if (!canvasRef.current) return;
-    selected.current = null;
-    inputs.current.onSelect(null);
+    if (inputs.current.activeBrush) inputs.current.onSelectBrush(null);
     const tile = tileUnderCursor(e);
+    const info = hoverAt(tile);
+    selected.current = tile;
+    inputs.current.onSelect(info.item);
     const dest = inputs.current.map.teleports.get(`${tile.x},${tile.y},${tile.z}`) ?? null;
-    setMenu({ clientX: e.clientX, clientY: e.clientY, tile, dest, item: hoverAt(tile).item });
+    setMenu({ clientX: e.clientX, clientY: e.clientY, tile, dest, item: info.item });
   }
 
   function buildItemPreview(clientId: number): string | undefined {
@@ -888,6 +902,19 @@ const MapCanvas = ({
       window.removeEventListener('blur', close);
     };
   }, [menu]);
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (e.key === 'Delete' && selected.current) {
+        e.preventDefault();
+        deleteSelected();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <div className="relative h-full w-full">
