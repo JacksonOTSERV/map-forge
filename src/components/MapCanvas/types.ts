@@ -31,5 +31,6 @@ export interface MapCanvasProps {
   onFloorChange: (z: number) => void;
   onHover: (info: HoverInfo | null) => void;
   onSelect: (item: HoverItem | null) => void;
+  onSelectBrush: (brush: ActiveBrush | null) => void;
   activeBrush: ActiveBrush | null;
 }

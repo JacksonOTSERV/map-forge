@@ -54,6 +54,7 @@ const MapCanvas = ({
   onFloorChange,
   onHover,
   onSelect,
+  onSelectBrush,
   activeBrush
 }: MapCanvasProps) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -103,6 +104,7 @@ const MapCanvas = ({
     onFloorChange,
     onHover,
     onSelect,
+    onSelectBrush,
     floorZ,
     activeBrush
   });
@@ -119,6 +121,7 @@ const MapCanvas = ({
     onFloorChange,
     onHover,
     onSelect,
+    onSelectBrush,
     floorZ,
     activeBrush
   };
@@ -139,9 +142,13 @@ const MapCanvas = ({
   const paintable = activeBrush != null && activeBrush.serverId != null;
   const canvasCursor = paintable ? DRAW_CURSOR : panning ? 'grabbing' : moving ? 'grabbing' : 'default';
 
-  const [menu, setMenu] = React.useState<null | { clientX: number; clientY: number; tile: Position; dest: Position | null }>(
-    null
-  );
+  const [menu, setMenu] = React.useState<null | {
+    clientX: number;
+    clientY: number;
+    tile: Position;
+    dest: Position | null;
+    item: HoverItem | null;
+  }>(null);
   const [gotoForm, setGotoForm] = React.useState<null | Position>(null);
   const [glError, setGlError] = React.useState<string | null>(null);
 
@@ -823,9 +830,52 @@ const MapCanvas = ({
   function onContextMenu(e: React.MouseEvent) {
     e.preventDefault();
     if (!canvasRef.current) return;
+    selected.current = null;
+    inputs.current.onSelect(null);
     const tile = tileUnderCursor(e);
     const dest = inputs.current.map.teleports.get(`${tile.x},${tile.y},${tile.z}`) ?? null;
-    setMenu({ clientX: e.clientX, clientY: e.clientY, tile, dest });
+    setMenu({ clientX: e.clientX, clientY: e.clientY, tile, dest, item: hoverAt(tile).item });
+  }
+
+  function buildItemPreview(clientId: number): string | undefined {
+    const thing = inputs.current.items.get(clientId);
+    if (!thing || thing.spriteIndex.length === 0) return undefined;
+    const w = Math.max(1, thing.width);
+    const h = Math.max(1, thing.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = w * TILE;
+    canvas.height = h * TILE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+    let drew = false;
+    for (let l = 0; l < thing.layers; l++) {
+      for (let hh = 0; hh < h; hh++) {
+        for (let ww = 0; ww < w; ww++) {
+          const sid = thing.spriteIndex[getSpriteIndex(thing, ww, hh, l, 0, 0, 0, 0)];
+          if (!sid) continue;
+          const data = spriteData.current.get(sid);
+          if (!data || data.empty) continue;
+          ctx.putImageData(new ImageData(new Uint8ClampedArray(data.rgba), TILE, TILE), (w - 1 - ww) * TILE, (h - 1 - hh) * TILE);
+          drew = true;
+        }
+      }
+    }
+    return drew ? canvas.toDataURL() : undefined;
+  }
+
+  function selectRaw(item: HoverItem) {
+    const thing = inputs.current.items.get(item.clientId);
+    inputs.current.onSelectBrush({
+      key: `raw-${item.serverId}`,
+      name: item.name || `Item ${item.serverId}`,
+      kind: 'rawItem',
+      serverId: item.serverId,
+      isGround: thing?.isGround ?? false,
+      cols: thing?.width ?? 1,
+      rows: thing?.height ?? 1,
+      preview: buildItemPreview(item.clientId)
+    });
+    setMenu(null);
   }
 
   React.useEffect(() => {
@@ -890,6 +940,17 @@ const MapCanvas = ({
           style={{ left: menu.clientX, top: menu.clientY }}
           className="fixed z-50 min-w-[200px] overflow-hidden rounded-md border border-border bg-popover py-1 text-sm text-popover-foreground shadow-island-lg"
         >
+          {menu.item && (
+            <>
+              <button
+                onClick={() => selectRaw(menu.item!)}
+                className="flex w-full items-center px-3 py-1.5 text-left hover:bg-accent"
+              >
+                Select RAW{menu.item.name ? ` "${menu.item.name}"` : ''}
+              </button>
+              <div className="my-1 h-px bg-border" />
+            </>
+          )}
           {menu.dest ? (
             <button onClick={() => goTo(menu.dest!)} className="flex w-full items-center px-3 py-1.5 text-left hover:bg-accent">
               Go to destination ({menu.dest.x}, {menu.dest.y}, {menu.dest.z})

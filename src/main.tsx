@@ -182,6 +182,7 @@ const App = () => {
                 onFloorChange={setFloorZ}
                 onSelect={setSelectedItem}
                 itemNames={assets.itemNames}
+                onSelectBrush={setActiveBrush}
                 transparency={assets.transparency}
               />
             ) : (
