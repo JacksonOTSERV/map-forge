@@ -9,11 +9,11 @@ import { visibleFloorRange } from '~/usecase/floors';
 import { slotUV, GLRenderer, ATLAS_SLOTS } from '~/usecase/glRenderer';
 import { paintTiles, packChunkKey, fetchMapChunks } from '~/adapter/map';
 
-const LOWER_FLOOR_DIM = 0.5;
-
 import { HoverInfo, HoverItem, MapCanvasProps } from './types';
 
 const TILE = 32;
+const MAX_ELEVATION = 24;
+const LOWER_FLOOR_DIM = 0.5;
 const CHUNK = 32;
 const CHUNK_WORLD = CHUNK * TILE;
 const SPRITE_CACHE_MAX = 12288;
@@ -248,33 +248,40 @@ const MapCanvas = ({
         const tx = ct.tileX[i];
         const ty = ct.tileY[i];
         const end = ct.itemOffset[i + 1];
+        let drawElevation = 0;
         for (let ii = ct.itemOffset[i]; ii < end; ii++) {
           const thing = items.get(ct.clientIds[ii]);
           if (!thing || thing.spriteIndex.length === 0) continue;
           const px = thing.patternX > 0 ? tx % thing.patternX : 0;
           const py = thing.patternY > 0 ? ty % thing.patternY : 0;
+          const ox = (thing.offsetX || 0) + drawElevation;
+          const oy = (thing.offsetY || 0) + drawElevation;
 
-          for (let h = 0; h < thing.height; h++) {
-            for (let w = 0; w < thing.width; w++) {
-              const sid = thing.spriteIndex[getSpriteIndex(thing, w, h, 0, px, py, 0, 0)];
-              if (!sid) continue;
-              const data = spriteData.current.get(sid);
-              if (!data) {
-                missing.add(sid);
-                complete = false;
-                continue;
+          for (let l = 0; l < thing.layers; l++) {
+            for (let h = 0; h < thing.height; h++) {
+              for (let w = 0; w < thing.width; w++) {
+                const sid = thing.spriteIndex[getSpriteIndex(thing, w, h, l, px, py, 0, 0)];
+                if (!sid) continue;
+                const data = spriteData.current.get(sid);
+                if (!data) {
+                  missing.add(sid);
+                  complete = false;
+                  continue;
+                }
+                spriteLastUsed.current.set(sid, frameTick.current);
+                if (data.empty) continue;
+                const slot = spriteSlotFor(sid, data);
+                if (slot < 0) {
+                  complete = false;
+                  continue;
+                }
+                const { u0, v0 } = slotUV(slot);
+                inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0);
               }
-              spriteLastUsed.current.set(sid, frameTick.current);
-              if (data.empty) continue;
-              const slot = spriteSlotFor(sid, data);
-              if (slot < 0) {
-                complete = false;
-                continue;
-              }
-              const { u0, v0 } = slotUV(slot);
-              inst.push((tx - w) * TILE - (thing.offsetX || 0), (ty - h) * TILE - (thing.offsetY || 0), u0, v0);
             }
           }
+
+          if (thing.hasElevation) drawElevation = Math.min(drawElevation + thing.elevation, MAX_ELEVATION);
         }
       }
     }
