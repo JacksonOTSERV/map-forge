@@ -5,6 +5,7 @@ import { ThingType } from '~/domain/tibia';
 import { LoadedSprite } from '~/domain/sprite';
 import { loadSprites } from '~/adapter/sprites';
 import { mapClientIds } from '~/adapter/assets';
+import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { brushSpriteLayout, BrushSpriteLayout, resolveBrushThing } from '~/usecase/brushSprite';
 import { Select, SelectItem, SelectValue, SelectContent, SelectTrigger } from '~/components/commons/ui/select';
 import { ActiveBrush, PaletteData, PaletteBrush, PaletteCategoryId, PALETTE_CATEGORIES } from '~/domain/palette';
@@ -35,6 +36,7 @@ interface PalettePanelProps {
   transparency: boolean;
   items: Map<number, ThingType>;
   outfits: Map<number, ThingType>;
+  dragHandle?: DragHandleProps;
   onSelectBrush: (brush: ActiveBrush | null) => void;
 }
 
@@ -43,9 +45,12 @@ interface Tile {
   layout: BrushSpriteLayout | null;
 }
 
-const PalettePanel = ({ data, items, outfits, sprPath, transparency, onSelectBrush }: PalettePanelProps) => {
-  const spriteCache = React.useRef<Map<number, LoadedSprite>>(new Map());
-  const serverToClient = React.useRef<Map<number, number>>(new Map());
+const SHARED_SPRITE_CACHE = new Map<number, LoadedSprite>();
+const SHARED_SERVER_TO_CLIENT = new Map<number, number>();
+
+const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle, onSelectBrush }: PalettePanelProps) => {
+  const spriteCache = React.useRef(SHARED_SPRITE_CACHE);
+  const serverToClient = React.useRef(SHARED_SERVER_TO_CLIENT);
 
   const [category, setCategory] = React.useState<PaletteCategoryId>('terrain');
   const [tilesetName, setTilesetName] = React.useState<string>('');
@@ -133,7 +138,15 @@ const PalettePanel = ({ data, items, outfits, sprPath, transparency, onSelectBru
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-card shadow-island">
-      <div className="flex h-7 flex-shrink-0 items-center border-b border-border/50 bg-secondary/80 px-3">
+      <div
+        ref={dragHandle?.ref}
+        {...dragHandle?.attributes}
+        {...dragHandle?.listeners}
+        className={cn(
+          'flex h-7 flex-shrink-0 items-center border-b border-border/50 bg-secondary/80 px-3',
+          dragHandle?.className
+        )}
+      >
         <h2 className="text-xs font-semibold uppercase tracking-wide text-foreground">Palette</h2>
         <span className="ml-auto font-mono text-[10px] text-muted-foreground">{tiles.length}</span>
       </div>
