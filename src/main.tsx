@@ -12,12 +12,11 @@ import PalettePanel from '~/components/PalettePanel';
 import { HoverInfo } from '~/components/MapCanvas/types';
 import { newOtbm, openOtbm, closeMap } from '~/adapter/map';
 import { ActiveBrush, PaletteData } from '~/domain/palette';
+import { MIN_ZOOM, MAX_ZOOM, snapZoom } from '~/usecase/zoom';
 import { loadAssets, LoadedAssets, DEFAULT_DATA_DIR } from '~/adapter/assets';
 
 import './styles/index.css';
 
-const MIN_ZOOM = 0.03125;
-const MAX_ZOOM = 16;
 const NEW_MAP_WIDTH = 1024;
 const NEW_MAP_HEIGHT = 1024;
 
@@ -49,7 +48,7 @@ const App = () => {
     setTabs((prev) => prev.map((t) => (t.id === activeId ? { ...t, ...patch } : t)));
 
   const setFloorZ = (z: number) => updateActive({ floorZ: z });
-  const setZoom = (z: number) => updateActive({ zoom: z });
+  const setZoom = (z: number) => updateActive({ zoom: snapZoom(z) });
 
   function addTab(title: string, data: MapMeta) {
     const id = `tab-${++tabSeq}`;

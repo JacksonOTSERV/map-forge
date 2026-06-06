@@ -1,5 +1,6 @@
 import { Layers, ZoomIn, ZoomOut } from 'lucide-react';
 
+import { stepZoom } from '~/usecase/zoom';
 import { Slider } from '~/components/commons/ui/slider';
 import { HoverInfo } from '~/components/MapCanvas/types';
 
@@ -28,7 +29,7 @@ const TileDescription = ({ hover }: { hover: HoverInfo | null }) => {
   );
 };
 
-const StatusBar = ({ status, hover, floorZ, zoom, minZoom, maxZoom, onFloorChange, onZoomChange }: StatusBarProps) => {
+const StatusBar = ({ status, hover, floorZ, zoom, onFloorChange, onZoomChange }: StatusBarProps) => {
   return (
     <div className="flex h-8 flex-shrink-0 items-stretch border-t border-border/50 bg-toolbar-bg text-xs text-muted-foreground">
       <div className="flex min-w-0 flex-1 items-center px-3">
@@ -62,14 +63,14 @@ const StatusBar = ({ status, hover, floorZ, zoom, minZoom, maxZoom, onFloorChang
         <div className="mx-1 h-4 w-px bg-border" />
 
         <button
-          onClick={() => onZoomChange(Math.max(minZoom, zoom / 2))}
+          onClick={() => onZoomChange(stepZoom(zoom, -1))}
           className="flex h-5 w-5 items-center justify-center rounded hover:bg-accent hover:text-foreground"
         >
           <ZoomOut className="h-3.5 w-3.5" />
         </button>
         <span className="w-10 text-center tabular-nums text-foreground">{Math.round(zoom * 100)}%</span>
         <button
-          onClick={() => onZoomChange(Math.min(maxZoom, zoom * 2))}
+          onClick={() => onZoomChange(stepZoom(zoom, 1))}
           className="flex h-5 w-5 items-center justify-center rounded hover:bg-accent hover:text-foreground"
         >
           <ZoomIn className="h-3.5 w-3.5" />

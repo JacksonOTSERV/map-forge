@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { stepZoom } from '~/usecase/zoom';
 import { LoadedSprite } from '~/domain/sprite';
 import { getSpriteIndex } from '~/domain/tibia';
 import { loadSprites } from '~/adapter/sprites';
@@ -355,16 +356,31 @@ const MapCanvas = ({
     const dpr = window.devicePixelRatio || 1;
     const vw = canvas.clientWidth;
     const vh = canvas.clientHeight;
-    const bufW = Math.round(vw * dpr);
-    const bufH = Math.round(vh * dpr);
+
+    const screenScale = zoom * dpr;
+    const inv = 1 / screenScale;
+    const crisp = screenScale >= 1 || Math.abs(inv - Math.round(inv)) < 0.01;
+
+    let bufW: number;
+    let bufH: number;
+    let scale: number;
+    if (crisp) {
+      scale = screenScale;
+      bufW = Math.round(vw * dpr);
+      bufH = Math.round(vh * dpr);
+    } else {
+      const intDpr = Math.max(1, Math.round(dpr));
+      scale = intDpr;
+      bufW = Math.ceil((vw / zoom) * intDpr);
+      bufH = Math.ceil((vh / zoom) * intDpr);
+    }
     if (canvas.width !== bufW || canvas.height !== bufH) {
       canvas.width = bufW;
       canvas.height = bufH;
     }
 
     const { x: camX, y: camY } = camera.current;
-    const scale = zoom * dpr;
-    renderer.beginFrame(bufW, bufH, camX, camY, scale);
+    renderer.beginFrame(bufW, bufH, camX, camY, scale, 1);
 
     const { minX, minY, maxX, maxY } = inputs.current.map.bounds;
     const minCx = Math.floor(minX / CHUNK);
@@ -491,10 +507,9 @@ const MapCanvas = ({
     if (!canvas) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const { minZoom, maxZoom, onZoomChange } = inputs.current;
+      const { onZoomChange } = inputs.current;
       const z = zoomRef.current;
-      const factor = Math.pow(1.0015, -e.deltaY);
-      const newZoom = Math.min(maxZoom, Math.max(minZoom, z * factor));
+      const newZoom = stepZoom(z, -e.deltaY);
       if (newZoom === z) return;
 
       const rect = canvas.getBoundingClientRect();

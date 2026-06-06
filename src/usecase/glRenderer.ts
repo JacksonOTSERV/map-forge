@@ -9,26 +9,57 @@ layout(location=1) in vec2 aPos;
 layout(location=2) in vec2 aUV;
 uniform vec2 uCam;
 uniform float uScale;
+uniform float uSnap;
 uniform vec2 uViewport;
 uniform vec2 uFloorOffset;
 out vec2 vUV;
+out vec2 vSlot;
 const float T = ${TILE.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
 	vec2 world = aPos + aCorner * T + uFloorOffset;
-	vec2 screen = floor((world - uCam) * uScale + 0.5);
+	vec2 sp = (world - uCam) * uScale;
+	vec2 screen = mix(sp, floor(sp + 0.5), uSnap);
 	vec2 clip = (screen / uViewport) * 2.0 - 1.0;
 	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
 	vUV = aUV + aCorner * (T / A);
+	vSlot = aUV;
 }`;
 
 const FRAG_SRC = `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 vUV;
+in vec2 vSlot;
 uniform sampler2D uAtlas;
+uniform float uScale;
 out vec4 frag;
+const float T = ${TILE.toFixed(1)};
+const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
-	vec4 c = texture(uAtlas, vUV);
+	vec2 texel = vUV * A;
+	vec2 slotO = vSlot * A;
+	vec2 lo = slotO + 0.5;
+	vec2 hi = slotO + (T - 0.5);
+	vec4 c;
+	if (uScale >= 1.0) {
+		vec2 cd = fract(texel) - 0.5;
+		vec2 region = vec2(0.5 - 0.5 / uScale);
+		vec2 mt = floor(texel) + (cd - clamp(cd, -region, region)) * uScale + 0.5;
+		c = texture(uAtlas, clamp(mt, lo, hi) / A);
+	} else {
+		float inv = 1.0 / uScale;
+		if (abs(inv - floor(inv + 0.5)) < 0.01) {
+			c = texture(uAtlas, clamp(floor(texel) + 0.5, lo, hi) / A);
+		} else {
+			float h = 0.25 / uScale;
+			c = 0.25 * (
+				texture(uAtlas, clamp(texel + vec2(-h, -h), lo, hi) / A) +
+				texture(uAtlas, clamp(texel + vec2(h, -h), lo, hi) / A) +
+				texture(uAtlas, clamp(texel + vec2(-h, h), lo, hi) / A) +
+				texture(uAtlas, clamp(texel + vec2(h, h), lo, hi) / A)
+			);
+		}
+	}
 	if (c.a < 0.01) discard;
 	frag = c;
 }`;
@@ -68,6 +99,7 @@ export class GLRenderer {
   private atlas: WebGLTexture;
   private uCam: WebGLUniformLocation;
   private uScale: WebGLUniformLocation;
+  private uSnap: WebGLUniformLocation;
   private uViewport: WebGLUniformLocation;
   private uFloorOffset: WebGLUniformLocation;
   private dimProgram: WebGLProgram;
@@ -83,6 +115,7 @@ export class GLRenderer {
     this.program = this.link(VERT_SRC, FRAG_SRC);
     this.uCam = gl.getUniformLocation(this.program, 'uCam')!;
     this.uScale = gl.getUniformLocation(this.program, 'uScale')!;
+    this.uSnap = gl.getUniformLocation(this.program, 'uSnap')!;
     this.uViewport = gl.getUniformLocation(this.program, 'uViewport')!;
     this.uFloorOffset = gl.getUniformLocation(this.program, 'uFloorOffset')!;
 
@@ -107,8 +140,8 @@ export class GLRenderer {
     this.atlas = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.atlas);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ATLAS_DIM, ATLAS_DIM, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
@@ -176,7 +209,7 @@ export class GLRenderer {
     this.meshes.delete(key);
   }
 
-  beginFrame(bufW: number, bufH: number, camX: number, camY: number, scale: number) {
+  beginFrame(bufW: number, bufH: number, camX: number, camY: number, scale: number, snap: number) {
     const gl = this.gl;
     gl.viewport(0, 0, bufW, bufH);
     gl.clearColor(0x11 / 255, 0x15 / 255, 0x1c / 255, 1);
@@ -187,6 +220,7 @@ export class GLRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.atlas);
     gl.uniform2f(this.uCam, camX, camY);
     gl.uniform1f(this.uScale, scale);
+    gl.uniform1f(this.uSnap, snap);
     gl.uniform2f(this.uViewport, bufW, bufH);
     gl.uniform2f(this.uFloorOffset, 0, 0);
   }
