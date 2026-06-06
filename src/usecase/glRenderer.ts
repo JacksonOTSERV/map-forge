@@ -10,11 +10,12 @@ layout(location=2) in vec2 aUV;
 uniform vec2 uCam;
 uniform float uScale;
 uniform vec2 uViewport;
+uniform vec2 uFloorOffset;
 out vec2 vUV;
 const float T = ${TILE.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
-	vec2 world = aPos + aCorner * T;
+	vec2 world = aPos + aCorner * T + uFloorOffset;
 	vec2 screen = floor((world - uCam) * uScale + 0.5);
 	vec2 clip = (screen / uViewport) * 2.0 - 1.0;
 	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
@@ -30,6 +31,20 @@ void main() {
 	vec4 c = texture(uAtlas, vUV);
 	if (c.a < 0.01) discard;
 	frag = c;
+}`;
+
+const DIM_VERT_SRC = `#version 300 es
+void main() {
+	vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+	gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const DIM_FRAG_SRC = `#version 300 es
+precision mediump float;
+uniform vec4 uColor;
+out vec4 frag;
+void main() {
+	frag = uColor;
 }`;
 
 const FLOATS_PER_INSTANCE = 4;
@@ -54,6 +69,10 @@ export class GLRenderer {
   private uCam: WebGLUniformLocation;
   private uScale: WebGLUniformLocation;
   private uViewport: WebGLUniformLocation;
+  private uFloorOffset: WebGLUniformLocation;
+  private dimProgram: WebGLProgram;
+  private dimVao: WebGLVertexArrayObject;
+  private uDimColor: WebGLUniformLocation;
   private meshes = new Map<string, ChunkMesh>();
 
   constructor(canvas: HTMLCanvasElement) {
@@ -65,6 +84,11 @@ export class GLRenderer {
     this.uCam = gl.getUniformLocation(this.program, 'uCam')!;
     this.uScale = gl.getUniformLocation(this.program, 'uScale')!;
     this.uViewport = gl.getUniformLocation(this.program, 'uViewport')!;
+    this.uFloorOffset = gl.getUniformLocation(this.program, 'uFloorOffset')!;
+
+    this.dimProgram = this.link(DIM_VERT_SRC, DIM_FRAG_SRC);
+    this.uDimColor = gl.getUniformLocation(this.dimProgram, 'uColor')!;
+    this.dimVao = gl.createVertexArray()!;
 
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
@@ -164,6 +188,21 @@ export class GLRenderer {
     gl.uniform2f(this.uCam, camX, camY);
     gl.uniform1f(this.uScale, scale);
     gl.uniform2f(this.uViewport, bufW, bufH);
+    gl.uniform2f(this.uFloorOffset, 0, 0);
+  }
+
+  setFloorOffset(x: number, y: number) {
+    this.gl.uniform2f(this.uFloorOffset, x, y);
+  }
+
+  dimViewport(alpha: number) {
+    const gl = this.gl;
+    gl.useProgram(this.dimProgram);
+    gl.bindVertexArray(this.dimVao);
+    gl.uniform4f(this.uDimColor, 0, 0, 0, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.useProgram(this.program);
+    gl.bindVertexArray(this.vao);
   }
 
   drawChunkMesh(key: string) {
@@ -187,6 +226,8 @@ export class GLRenderer {
     gl.deleteTexture(this.atlas);
     gl.deleteBuffer(this.quad);
     gl.deleteVertexArray(this.vao);
+    gl.deleteVertexArray(this.dimVao);
     gl.deleteProgram(this.program);
+    gl.deleteProgram(this.dimProgram);
   }
 }

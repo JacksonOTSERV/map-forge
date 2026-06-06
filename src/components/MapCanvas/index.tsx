@@ -5,8 +5,11 @@ import { getSpriteIndex } from '~/domain/tibia';
 import { loadSprites } from '~/adapter/sprites';
 import { DRAW_CURSOR } from '~/usecase/cursors';
 import { Position, ChunkTiles } from '~/domain/map';
+import { visibleFloorRange } from '~/usecase/floors';
 import { slotUV, GLRenderer, ATLAS_SLOTS } from '~/usecase/glRenderer';
 import { paintTiles, packChunkKey, fetchMapChunks } from '~/adapter/map';
+
+const LOWER_FLOOR_DIM = 0.5;
 
 import { HoverInfo, HoverItem, MapCanvasProps } from './types';
 
@@ -189,15 +192,15 @@ const MapCanvas = ({
     return slot;
   }
 
-  function getTiles(cx: number, cy: number): ChunkTiles | null | undefined {
-    const k = `${inputs.current.floorZ},${cx},${cy}`;
+  function getTiles(cx: number, cy: number, z: number): ChunkTiles | null | undefined {
+    const k = `${z},${cx},${cy}`;
     const t = chunkTiles.current.get(k);
     if (t !== undefined) tilesLastUsed.current.set(k, frameTick.current);
     return t;
   }
 
-  function requestTiles(cx: number, cy: number) {
-    const k = `${inputs.current.floorZ},${cx},${cy}`;
+  function requestTiles(cx: number, cy: number, z: number) {
+    const k = `${z},${cx},${cy}`;
     if (requestedChunks.current.has(k)) return;
     requestedChunks.current.add(k);
     pendingChunks.current.add(k);
@@ -233,9 +236,9 @@ const MapCanvas = ({
     }
   }
 
-  function buildChunkMesh(cx: number, cy: number, missing: Set<number>) {
-    const { items, floorZ } = inputs.current;
-    const key = `${floorZ},${cx},${cy}`;
+  function buildChunkMesh(cx: number, cy: number, z: number, missing: Set<number>) {
+    const { items } = inputs.current;
+    const key = `${z},${cx},${cy}`;
     const ct = chunkTiles.current.get(key) as ChunkTiles | null | undefined;
     const inst: number[] = [];
     let complete = true;
@@ -362,37 +365,49 @@ const MapCanvas = ({
     const maxCx = Math.floor(maxX / CHUNK);
     const maxCy = Math.floor(maxY / CHUNK);
 
-    const startCx = Math.max(minCx, Math.floor(camX / CHUNK_WORLD));
-    const endCx = Math.min(maxCx, Math.floor((camX + vw / zoom) / CHUNK_WORLD));
-    const startCy = Math.max(minCy, Math.floor(camY / CHUNK_WORLD));
-    const endCy = Math.min(maxCy, Math.floor((camY + vh / zoom) / CHUNK_WORLD));
+    const { startZ, endZ } = visibleFloorRange(floorZ);
+    const dimLowerFloors = startZ !== endZ;
 
     const missing = new Set<number>();
     const deadline = performance.now() + BUILD_BUDGET_MS;
     let builds = 0;
     let drawn = 0;
 
-    for (let cy = startCy; cy <= endCy; cy++) {
-      for (let cx = startCx; cx <= endCx; cx++) {
-        const ct = getTiles(cx, cy);
-        if (ct === undefined) {
-          requestTiles(cx, cy);
-          continue;
-        }
-        if (ct === null) continue;
-        const key = `${floorZ},${cx},${cy}`;
-        const m = chunkMesh.current.get(key);
-        const fresh = m && m.epoch === spriteEpoch.current && (m.complete || m.version === spriteVersion.current);
-        if (!fresh && builds < BUILD_BUDGET_MAX && performance.now() < deadline) {
-          buildChunkMesh(cx, cy, missing);
-          builds++;
-        }
-        const mm = chunkMesh.current.get(key);
-        if (mm) {
-          mm.lastUsed = frameTick.current;
-          if (mm.count > 0) {
-            renderer.drawChunkMesh(key);
-            drawn++;
+    for (let z = startZ; z >= endZ; z--) {
+      if (dimLowerFloors && z === endZ) renderer.dimViewport(LOWER_FLOOR_DIM);
+
+      const shift = (z - endZ) * TILE;
+      renderer.setFloorOffset(shift, shift);
+
+      const fCamX = camX - shift;
+      const fCamY = camY - shift;
+      const startCx = Math.max(minCx, Math.floor(fCamX / CHUNK_WORLD));
+      const endCx = Math.min(maxCx, Math.floor((fCamX + vw / zoom) / CHUNK_WORLD));
+      const startCy = Math.max(minCy, Math.floor(fCamY / CHUNK_WORLD));
+      const endCy = Math.min(maxCy, Math.floor((fCamY + vh / zoom) / CHUNK_WORLD));
+
+      for (let cy = startCy; cy <= endCy; cy++) {
+        for (let cx = startCx; cx <= endCx; cx++) {
+          const ct = getTiles(cx, cy, z);
+          if (ct === undefined) {
+            requestTiles(cx, cy, z);
+            continue;
+          }
+          if (ct === null) continue;
+          const key = `${z},${cx},${cy}`;
+          const m = chunkMesh.current.get(key);
+          const fresh = m && m.epoch === spriteEpoch.current && (m.complete || m.version === spriteVersion.current);
+          if (!fresh && builds < BUILD_BUDGET_MAX && performance.now() < deadline) {
+            buildChunkMesh(cx, cy, z, missing);
+            builds++;
+          }
+          const mm = chunkMesh.current.get(key);
+          if (mm) {
+            mm.lastUsed = frameTick.current;
+            if (mm.count > 0) {
+              renderer.drawChunkMesh(key);
+              drawn++;
+            }
           }
         }
       }
@@ -595,8 +610,8 @@ const MapCanvas = ({
 
   function hoverAt(pos: Position): HoverInfo {
     const { items } = inputs.current;
-    const ct = getTiles(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK));
-    if (ct === undefined) requestTiles(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK));
+    const ct = getTiles(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK), pos.z);
+    if (ct === undefined) requestTiles(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK), pos.z);
     let found = -1;
     if (ct) {
       for (let i = 0; i < ct.tileX.length; i++) {
