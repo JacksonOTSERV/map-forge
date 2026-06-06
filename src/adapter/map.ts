@@ -12,6 +12,8 @@ function toUint8(response: Uint8Array | ArrayBuffer): Uint8Array {
 function decodeMeta(buffer: Uint8Array): MapMeta {
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   let o = 0;
+  const id = view.getUint32(o, true);
+  o += 4;
   const width = view.getUint16(o, true);
   o += 2;
   const height = view.getUint16(o, true);
@@ -49,7 +51,7 @@ function decodeMeta(buffer: Uint8Array): MapMeta {
     teleports.set(`${sx},${sy},${sz}`, { x: dx, y: dy, z: dz });
   }
 
-  return { width, height, tileCount, bounds: { minX, minY, maxX, maxY }, teleports, floors };
+  return { id, width, height, tileCount, bounds: { minX, minY, maxX, maxY }, teleports, floors };
 }
 
 export async function openOtbm(path: string, onProgress?: OtbmProgress): Promise<MapMeta> {
@@ -65,11 +67,31 @@ export async function openOtbm(path: string, onProgress?: OtbmProgress): Promise
   }
 }
 
-export async function fetchMapChunks(z: number, keys: number[]): Promise<Map<string, ChunkTiles>> {
+export async function newOtbm(width: number, height: number): Promise<MapMeta> {
+  const response = await invoke<Uint8Array | ArrayBuffer>('new_otbm', { width, height });
+  return decodeMeta(toUint8(response));
+}
+
+export async function closeMap(mapId: number): Promise<void> {
+  await invoke('close_map', { mapId });
+}
+
+export async function paintTiles(
+  mapId: number,
+  z: number,
+  xs: number[],
+  ys: number[],
+  serverId: number,
+  isGround: boolean
+): Promise<void> {
+  await invoke('paint_tiles', { mapId, z, xs, ys, serverId, isGround });
+}
+
+export async function fetchMapChunks(mapId: number, z: number, keys: number[]): Promise<Map<string, ChunkTiles>> {
   const result = new Map<string, ChunkTiles>();
   if (keys.length === 0) return result;
 
-  const response = await invoke<Uint8Array | ArrayBuffer>('get_map_chunks', { z, keys });
+  const response = await invoke<Uint8Array | ArrayBuffer>('get_map_chunks', { mapId, z, keys });
   const u8 = toUint8(response);
   const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 

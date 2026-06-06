@@ -3,29 +3,68 @@ import { createRoot } from 'react-dom/client';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import { MapMeta } from '~/domain/map';
-import { openOtbm } from '~/adapter/map';
 import Toolbar from '~/components/Toolbar';
-import TitleBar from '~/components/TitleBar';
+import MapTabs from '~/components/MapTabs';
 import StatusBar from '~/components/StatusBar';
 import MapCanvas from '~/components/MapCanvas';
+import { loadPalette } from '~/adapter/palette';
+import PalettePanel from '~/components/PalettePanel';
 import { HoverInfo } from '~/components/MapCanvas/types';
+import { newOtbm, openOtbm, closeMap } from '~/adapter/map';
+import { ActiveBrush, PaletteData } from '~/domain/palette';
 import { loadAssets, LoadedAssets, DEFAULT_DATA_DIR } from '~/adapter/assets';
 
 import './styles/index.css';
 
 const MIN_ZOOM = 0.03125;
 const MAX_ZOOM = 16;
+const NEW_MAP_WIDTH = 1024;
+const NEW_MAP_HEIGHT = 1024;
+
+interface MapTab {
+  id: string;
+  title: string;
+  map: MapMeta;
+  floorZ: number;
+  zoom: number;
+}
+
+let tabSeq = 0;
 
 const App = () => {
   const [assets, setAssets] = React.useState<LoadedAssets | null>(null);
+  const [palette, setPalette] = React.useState<PaletteData | null>(null);
+  const [activeBrush, setActiveBrush] = React.useState<ActiveBrush | null>(null);
   const [status, setStatus] = React.useState('Loading client assets...');
   const [error, setError] = React.useState<string | null>(null);
-  const [map, setMap] = React.useState<MapMeta | null>(null);
-  const [floorZ, setFloorZ] = React.useState(7);
-  const [zoom, setZoom] = React.useState(1);
+  const [tabs, setTabs] = React.useState<MapTab[]>([]);
+  const [activeId, setActiveId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState<{ value: number; label: string } | null>(null);
   const [hover, setHover] = React.useState<HoverInfo | null>(null);
+
+  const active = tabs.find((t) => t.id === activeId) ?? null;
+
+  const updateActive = (patch: Partial<MapTab>) =>
+    setTabs((prev) => prev.map((t) => (t.id === activeId ? { ...t, ...patch } : t)));
+
+  const setFloorZ = (z: number) => updateActive({ floorZ: z });
+  const setZoom = (z: number) => updateActive({ zoom: z });
+
+  function addTab(title: string, data: MapMeta) {
+    const id = `tab-${++tabSeq}`;
+    setTabs((prev) => [...prev, { id, title, map: data, floorZ: 7, zoom: 1 }]);
+    setActiveId(id);
+  }
+
+  function closeTab(id: string) {
+    const idx = tabs.findIndex((t) => t.id === id);
+    const tab = tabs[idx];
+    const next = tabs.filter((t) => t.id !== id);
+    setTabs(next);
+    if (tab) void closeMap(tab.map.id).catch(() => undefined);
+    if (id === activeId) setActiveId(next[idx]?.id ?? next[idx - 1]?.id ?? null);
+  }
 
   React.useEffect(() => {
     loadAssets()
@@ -38,6 +77,13 @@ const App = () => {
         setStatus('Asset load failed');
       });
   }, []);
+
+  React.useEffect(() => {
+    if (!assets) return;
+    loadPalette()
+      .then(setPalette)
+      .catch((e) => setError(`Failed to load palette: ${e}`));
+  }, [assets]);
 
   async function handleOpen() {
     if (!assets) return;
@@ -56,9 +102,10 @@ const App = () => {
       const data = await openOtbm(selected, (_phase, value) => {
         setProgress({ value, label: 'Reading map...' });
       });
-      setMap(data);
+      const name = selected.split(/[\\/]/).pop() ?? 'map.otbm';
+      addTab(name, data);
       const dims = `${data.bounds.minX}..${data.bounds.maxX} x ${data.bounds.minY}..${data.bounds.maxY}`;
-      setStatus(`${selected.split(/[\\/]/).pop()} - ${data.tileCount} tiles - ${dims} - ${data.width}x${data.height}`);
+      setStatus(`${name} - ${data.tileCount} tiles - ${dims} - ${data.width}x${data.height}`);
     } catch (e) {
       setError(`Failed to open map: ${e}`);
       setStatus('Map load failed');
@@ -68,56 +115,101 @@ const App = () => {
     }
   }
 
+  async function handleNew() {
+    if (!assets) return;
+    setBusy(true);
+    setStatus('Creating map...');
+    try {
+      const data = await newOtbm(NEW_MAP_WIDTH, NEW_MAP_HEIGHT);
+      const used = new Set(tabs.map((t) => t.title));
+      let n = 1;
+      while (used.has(`untitled-${n}`)) n++;
+      addTab(`untitled-${n}`, data);
+      setError(null);
+      setStatus(`New map - ${data.width}x${data.height}`);
+    } catch (e) {
+      setError(`Failed to create map: ${e}`);
+      setStatus('Map create failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <TitleBar title="Nosbor Map Editor" />
-      <Toolbar
-        zoom={zoom}
-        floorZ={floorZ}
-        minZoom={MIN_ZOOM}
-        maxZoom={MAX_ZOOM}
-        onOpen={handleOpen}
-        onZoomChange={setZoom}
-        loading={busy || !assets}
-        onFloorChange={setFloorZ}
-      />
+      <Toolbar onNew={handleNew} onOpen={handleOpen} loading={busy || !assets} />
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        {map && assets ? (
-          <MapCanvas
-            map={map}
-            zoom={zoom}
-            floorZ={floorZ}
-            minZoom={MIN_ZOOM}
-            maxZoom={MAX_ZOOM}
-            onHover={setHover}
+      <div className="flex min-h-0 flex-1 gap-1.5 overflow-hidden bg-toolbar-bg p-1.5">
+        {assets && palette && (
+          <PalettePanel
+            data={palette}
             items={assets.items}
-            onZoomChange={setZoom}
+            outfits={assets.outfits}
             sprPath={assets.sprPath}
-            onFloorChange={setFloorZ}
+            onSelectBrush={setActiveBrush}
             transparency={assets.transparency}
           />
-        ) : (
-          <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
-            {error ?? status}
-          </div>
         )}
 
-        {progress && (
-          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm">
-            <div className="text-sm text-muted-foreground">{progress.label}</div>
-            <div className="h-2 w-72 overflow-hidden rounded-full bg-secondary">
-              <div
-                style={{ width: `${Math.round(progress.value * 100)}%` }}
-                className="h-full rounded-full bg-primary transition-[width] duration-150 ease-out"
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-card shadow-island">
+          <MapTabs
+            tabs={tabs}
+            onNew={handleNew}
+            onClose={closeTab}
+            activeId={activeId}
+            onSelect={setActiveId}
+            disabled={busy || !assets}
+          />
+
+          <div className="relative min-h-0 flex-1">
+            {active && assets ? (
+              <MapCanvas
+                key={active.id}
+                map={active.map}
+                zoom={active.zoom}
+                minZoom={MIN_ZOOM}
+                maxZoom={MAX_ZOOM}
+                onHover={setHover}
+                items={assets.items}
+                floorZ={active.floorZ}
+                onZoomChange={setZoom}
+                sprPath={assets.sprPath}
+                activeBrush={activeBrush}
+                onFloorChange={setFloorZ}
+                transparency={assets.transparency}
               />
-            </div>
-            <div className="font-mono text-xs text-muted-foreground">{Math.round(progress.value * 100)}%</div>
+            ) : (
+              <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+                {error ?? status}
+              </div>
+            )}
+
+            {progress && (
+              <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm">
+                <div className="text-sm text-muted-foreground">{progress.label}</div>
+                <div className="h-2 w-72 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    style={{ width: `${Math.round(progress.value * 100)}%` }}
+                    className="h-full rounded-full bg-primary transition-[width] duration-150 ease-out"
+                  />
+                </div>
+                <div className="font-mono text-xs text-muted-foreground">{Math.round(progress.value * 100)}%</div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
-      <StatusBar hover={hover} status={error ?? status} />
+      <StatusBar
+        hover={hover}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
+        onZoomChange={setZoom}
+        zoom={active?.zoom ?? 1}
+        status={error ?? status}
+        onFloorChange={setFloorZ}
+        floorZ={active?.floorZ ?? 7}
+      />
     </div>
   );
 };

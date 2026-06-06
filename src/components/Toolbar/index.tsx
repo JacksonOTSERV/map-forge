@@ -1,46 +1,70 @@
-import { Layers, ZoomIn, ZoomOut, FolderOpen } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { X, Minus, Square, FilePlus, FolderOpen } from 'lucide-react';
 
 import { Button } from '~/components/commons/ui/button';
-import { Slider } from '~/components/commons/ui/slider';
-import { Separator } from '~/components/commons/ui/separator';
 
 interface ToolbarProps {
-  floorZ: number;
-  zoom: number;
-  minZoom: number;
-  maxZoom: number;
   loading: boolean;
+  onNew: () => void;
   onOpen: () => void;
-  onFloorChange: (z: number) => void;
-  onZoomChange: (zoom: number) => void;
 }
 
-const Toolbar = ({ floorZ, zoom, minZoom, maxZoom, loading, onOpen, onFloorChange, onZoomChange }: ToolbarProps) => {
+const Toolbar = ({ loading, onNew, onOpen }: ToolbarProps) => {
+  const win = getCurrentWindow();
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
   return (
-    <div className="flex flex-shrink-0 items-center gap-3 border-b border-border bg-toolbar-bg px-3 py-2">
-      <Button size="sm" onClick={onOpen} disabled={loading} variant="secondary">
-        <FolderOpen className="mr-2 h-4 w-4" />
-        Open Map
-      </Button>
-
-      <Separator className="h-6" orientation="vertical" />
-
-      <div className="flex items-center gap-2">
-        <Layers className="h-4 w-4 text-muted-foreground" />
-        <span className="w-14 text-xs text-muted-foreground">Floor {floorZ}</span>
-        <Slider min={0} max={15} step={1} className="w-40" value={[floorZ]} onValueChange={(v) => onFloorChange(v[0])} />
+    <div
+      data-tauri-drag-region
+      className="flex h-8 flex-shrink-0 items-center gap-1 border-b border-border/50 bg-toolbar-bg pl-1.5 pr-3"
+    >
+      <div className="flex items-center gap-0.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onNew}
+          disabled={loading}
+          onMouseDown={stop}
+          className="h-6 px-2 text-xs font-medium"
+        >
+          <FilePlus className="mr-1.5 h-3.5 w-3.5" />
+          New Map
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onOpen}
+          disabled={loading}
+          onMouseDown={stop}
+          className="h-6 px-2 text-xs font-medium"
+        >
+          <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+          Open Map
+        </Button>
       </div>
 
-      <Separator className="h-6" orientation="vertical" />
-
-      <div className="flex items-center gap-1">
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onZoomChange(Math.max(minZoom, zoom / 2))}>
-          <ZoomOut className="h-4 w-4" />
-        </Button>
-        <span className="w-12 text-center text-xs text-muted-foreground">{Math.round(zoom * 100)}%</span>
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onZoomChange(Math.min(maxZoom, zoom * 2))}>
-          <ZoomIn className="h-4 w-4" />
-        </Button>
+      <div className="-mr-3 ml-auto flex items-center">
+        <button
+          onMouseDown={stop}
+          onClick={() => win.minimize()}
+          className="flex h-8 w-9 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Minus className="h-4 w-4" />
+        </button>
+        <button
+          onMouseDown={stop}
+          onClick={() => win.toggleMaximize()}
+          className="flex h-8 w-9 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Square className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onMouseDown={stop}
+          onClick={() => win.close()}
+          className="flex h-8 w-9 items-center justify-center text-muted-foreground hover:bg-[#c42b1c] hover:text-white"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );

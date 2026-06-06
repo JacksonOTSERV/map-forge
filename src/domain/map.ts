@@ -5,6 +5,7 @@ export interface Position {
 }
 
 export interface MapMeta {
+  id: number;
   width: number;
   height: number;
   tileCount: number;

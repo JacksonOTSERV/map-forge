@@ -3,9 +3,10 @@ import React from 'react';
 import { LoadedSprite } from '~/domain/sprite';
 import { getSpriteIndex } from '~/domain/tibia';
 import { loadSprites } from '~/adapter/sprites';
+import { DRAW_CURSOR } from '~/usecase/cursors';
 import { Position, ChunkTiles } from '~/domain/map';
-import { packChunkKey, fetchMapChunks } from '~/adapter/map';
 import { slotUV, GLRenderer, ATLAS_SLOTS } from '~/usecase/glRenderer';
+import { paintTiles, packChunkKey, fetchMapChunks } from '~/adapter/map';
 
 import { HoverInfo, HoverItem, MapCanvasProps } from './types';
 
@@ -45,7 +46,8 @@ const MapCanvas = ({
   maxZoom,
   onZoomChange,
   onFloorChange,
-  onHover
+  onHover,
+  activeBrush
 }: MapCanvasProps) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const fpsRef = React.useRef<HTMLSpanElement>(null);
@@ -92,11 +94,34 @@ const MapCanvas = ({
     onZoomChange,
     onFloorChange,
     onHover,
-    floorZ
+    floorZ,
+    activeBrush
   });
-  inputs.current = { map, items, sprPath, transparency, zoom, minZoom, maxZoom, onZoomChange, onFloorChange, onHover, floorZ };
+  inputs.current = {
+    map,
+    items,
+    sprPath,
+    transparency,
+    zoom,
+    minZoom,
+    maxZoom,
+    onZoomChange,
+    onFloorChange,
+    onHover,
+    floorZ,
+    activeBrush
+  };
 
   const lastHoverKey = React.useRef<string | null>(null);
+  const painting = React.useRef(false);
+  const lastPaintKey = React.useRef<string | null>(null);
+  const hoveredTile = React.useRef<Position | null>(null);
+  const ghostRef = React.useRef<HTMLImageElement>(null);
+  const highlightRef = React.useRef<HTMLDivElement>(null);
+  const [panning, setPanning] = React.useState(false);
+
+  const paintable = activeBrush != null && activeBrush.serverId != null;
+  const canvasCursor = paintable ? DRAW_CURSOR : panning ? 'grabbing' : 'grab';
 
   const [menu, setMenu] = React.useState<null | { clientX: number; clientY: number; tile: Position; dest: Position | null }>(
     null
@@ -192,13 +217,15 @@ const MapCanvas = ({
     }
     pendingChunks.current.clear();
     for (const [z, keys] of byZ) {
-      fetchMapChunks(z, keys)
+      fetchMapChunks(inputs.current.map.id, z, keys)
         .then((res) => {
           for (const packed of keys) {
             const cx = packed >>> 16;
             const cy = packed & 0xffff;
-            chunkTiles.current.set(`${z},${cx},${cy}`, res.get(`${cx},${cy}`) ?? null);
-            tilesLastUsed.current.set(`${z},${cx},${cy}`, frameTick.current);
+            const key = `${z},${cx},${cy}`;
+            chunkTiles.current.set(key, res.get(`${cx},${cy}`) ?? null);
+            tilesLastUsed.current.set(key, frameTick.current);
+            chunkMesh.current.delete(key);
           }
           spriteVersion.current++;
         })
@@ -373,6 +400,8 @@ const MapCanvas = ({
     renderer.endFrame();
     lastChunksDrawn.current = drawn;
 
+    updateGhost(camX, camY, zoom);
+
     flushTileRequests();
 
     const toFetch = [...missing].filter((id) => !requested.current.has(id));
@@ -461,11 +490,79 @@ const MapCanvas = ({
     return () => canvas.removeEventListener('wheel', onWheel);
   }, []);
 
+  function paintAt(pos: Position) {
+    const brush = inputs.current.activeBrush;
+    if (!brush || brush.serverId == null) return;
+    const key = `${pos.x},${pos.y},${pos.z}`;
+    if (key === lastPaintKey.current) return;
+    lastPaintKey.current = key;
+    paintTiles(inputs.current.map.id, pos.z, [pos.x], [pos.y], brush.serverId, brush.isGround)
+      .then(() => refetchChunk(pos.x, pos.y, pos.z))
+      .catch((err) => console.error('Failed to paint tile', err));
+  }
+
+  function refetchChunk(x: number, y: number, z: number) {
+    const cx = Math.floor(x / CHUNK);
+    const cy = Math.floor(y / CHUNK);
+    const key = `${z},${cx},${cy}`;
+    requestedChunks.current.add(key);
+    pendingChunks.current.add(key);
+  }
+
+  function updateGhost(camX: number, camY: number, zoom: number) {
+    const ghost = ghostRef.current;
+    const outline = highlightRef.current;
+    if (!ghost || !outline) return;
+
+    const brush = inputs.current.activeBrush;
+    const tile = hoveredTile.current;
+    if (!brush || brush.serverId == null || !tile) {
+      ghost.style.display = 'none';
+      outline.style.display = 'none';
+      return;
+    }
+
+    const cols = brush.cols ?? 1;
+    const rows = brush.rows ?? 1;
+    const screenX = ((tile.x + 1 - cols) * TILE - camX) * zoom;
+    const screenY = ((tile.y + 1 - rows) * TILE - camY) * zoom;
+    const w = cols * TILE * zoom;
+    const h = rows * TILE * zoom;
+    const transform = `translate(${screenX}px, ${screenY}px)`;
+
+    if (brush.preview) {
+      if (ghost.getAttribute('src') !== brush.preview) ghost.src = brush.preview;
+      ghost.style.display = 'block';
+      ghost.style.width = `${w}px`;
+      ghost.style.height = `${h}px`;
+      ghost.style.transform = transform;
+    } else {
+      ghost.style.display = 'none';
+    }
+
+    outline.style.display = 'block';
+    outline.style.width = `${w}px`;
+    outline.style.height = `${h}px`;
+    outline.style.transform = transform;
+  }
+
   function onMouseDown(e: React.MouseEvent) {
-    drag.current = { startX: e.clientX, startY: e.clientY, camX: camera.current.x, camY: camera.current.y };
+    const brush = inputs.current.activeBrush;
+    if (e.button === 0 && brush && brush.serverId != null) {
+      painting.current = true;
+      lastPaintKey.current = null;
+      paintAt(tileUnderCursor(e));
+      return;
+    }
+    if (e.button === 0 || e.button === 1) {
+      drag.current = { startX: e.clientX, startY: e.clientY, camX: camera.current.x, camY: camera.current.y };
+      setPanning(true);
+    }
   }
   function onMouseMove(e: React.MouseEvent) {
-    if (drag.current) {
+    if (painting.current) {
+      paintAt(tileUnderCursor(e));
+    } else if (drag.current) {
       const z = zoomRef.current;
       camera.current = {
         x: drag.current.camX - (e.clientX - drag.current.startX) / z,
@@ -473,6 +570,7 @@ const MapCanvas = ({
       };
     }
     const pos = tileUnderCursor(e);
+    hoveredTile.current = pos;
     const key = `${pos.x},${pos.y},${pos.z}`;
     if (key !== lastHoverKey.current) {
       lastHoverKey.current = key;
@@ -481,10 +579,17 @@ const MapCanvas = ({
   }
   function onMouseUp() {
     drag.current = null;
+    painting.current = false;
+    lastPaintKey.current = null;
+    setPanning(false);
   }
   function onMouseLeave() {
     drag.current = null;
+    painting.current = false;
+    lastPaintKey.current = null;
     lastHoverKey.current = null;
+    hoveredTile.current = null;
+    setPanning(false);
     inputs.current.onHover(null);
   }
 
@@ -567,7 +672,19 @@ const MapCanvas = ({
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
         onContextMenu={onContextMenu}
-        style={{ cursor: 'grab', display: 'block' }}
+        style={{ cursor: canvasCursor, display: 'block' }}
+      />
+      <img
+        alt=""
+        aria-hidden
+        ref={ghostRef}
+        className="pointer-events-none absolute left-0 top-0 hidden"
+        style={{ opacity: 0.6, imageRendering: 'pixelated', transformOrigin: 'top left' }}
+      />
+      <div
+        ref={highlightRef}
+        style={{ transformOrigin: 'top left' }}
+        className="pointer-events-none absolute left-0 top-0 hidden rounded-[2px] border border-primary/70 bg-primary/5"
       />
       {glError && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-destructive">

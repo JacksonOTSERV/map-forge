@@ -3,15 +3,21 @@ import { invoke } from '@tauri-apps/api/core';
 import { ThingType } from '~/domain/tibia';
 import { decodeDatResponse } from '~/adapter/datDecoder';
 
-export const DEFAULT_DATA_DIR = 'D:/workspace/projects/map-editor/data/860';
+export const DEFAULT_DATA_DIR = 'D:/workspace/projects/nosbor/data/860';
 export const DEFAULT_VERSION = 860;
 
 export interface LoadedAssets {
   items: Map<number, ThingType>;
+  outfits: Map<number, ThingType>;
   sprPath: string;
   transparency: boolean;
   spritesCount: number;
   otbItemCount: number;
+}
+
+export async function mapClientIds(serverIds: number[]): Promise<number[]> {
+  if (serverIds.length === 0) return [];
+  return invoke<number[]>('map_client_ids', { serverIds });
 }
 
 interface OtfiFlags {
@@ -69,6 +75,7 @@ export async function loadAssets(dir = DEFAULT_DATA_DIR, version = DEFAULT_VERSI
 
   return {
     items: dat.items,
+    outfits: dat.outfits,
     sprPath,
     transparency,
     spritesCount: sprHeader.sprite_count,

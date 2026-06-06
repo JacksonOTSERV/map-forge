@@ -1,5 +1,6 @@
 import { MapMeta } from '~/domain/map';
 import { ThingType } from '~/domain/tibia';
+import { ActiveBrush } from '~/domain/palette';
 
 export interface HoverItem {
   serverId: number;
@@ -28,4 +29,5 @@ export interface MapCanvasProps {
   onZoomChange: (zoom: number) => void;
   onFloorChange: (z: number) => void;
   onHover: (info: HoverInfo | null) => void;
+  activeBrush: ActiveBrush | null;
 }
