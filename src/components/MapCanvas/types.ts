@@ -20,6 +20,7 @@ export interface HoverInfo {
 export interface MapCanvasProps {
   map: MapMeta;
   items: Map<number, ThingType>;
+  itemNames: Map<number, string>;
   sprPath: string;
   transparency: boolean;
   floorZ: number;
@@ -29,5 +30,6 @@ export interface MapCanvasProps {
   onZoomChange: (zoom: number) => void;
   onFloorChange: (z: number) => void;
   onHover: (info: HoverInfo | null) => void;
+  onSelect: (item: HoverItem | null) => void;
   activeBrush: ActiveBrush | null;
 }

@@ -2,7 +2,7 @@ import { Layers, ZoomIn, ZoomOut } from 'lucide-react';
 
 import { stepZoom } from '~/usecase/zoom';
 import { Slider } from '~/components/commons/ui/slider';
-import { HoverInfo } from '~/components/MapCanvas/types';
+import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
 
 interface StatusBarProps {
   status: string;
@@ -11,6 +11,7 @@ interface StatusBarProps {
   minZoom: number;
   maxZoom: number;
   hover: HoverInfo | null;
+  selectedItem: HoverItem | null;
   onFloorChange: (z: number) => void;
   onZoomChange: (zoom: number) => void;
 }
@@ -29,11 +30,21 @@ const TileDescription = ({ hover }: { hover: HoverInfo | null }) => {
   );
 };
 
-const StatusBar = ({ status, hover, floorZ, zoom, onFloorChange, onZoomChange }: StatusBarProps) => {
+const SelectedDescription = ({ item }: { item: HoverItem }) => {
+  const { name, serverId, clientId } = item;
+  return (
+    <span className="truncate font-mono">
+      Selected{name ? ` "${name}"` : ''} id:<span className="text-foreground">{serverId}</span> cid:
+      <span className="text-foreground">{clientId}</span>
+    </span>
+  );
+};
+
+const StatusBar = ({ status, hover, selectedItem, floorZ, zoom, onFloorChange, onZoomChange }: StatusBarProps) => {
   return (
     <div className="flex h-8 flex-shrink-0 items-stretch border-t border-border/50 bg-toolbar-bg text-xs text-muted-foreground">
       <div className="flex min-w-0 flex-1 items-center px-3">
-        <span className="truncate">{status}</span>
+        {selectedItem ? <SelectedDescription item={selectedItem} /> : <span className="truncate">{status}</span>}
       </div>
 
       <div className="w-px self-stretch bg-border" />

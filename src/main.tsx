@@ -9,10 +9,10 @@ import StatusBar from '~/components/StatusBar';
 import MapCanvas from '~/components/MapCanvas';
 import { loadPalette } from '~/adapter/palette';
 import PalettePanel from '~/components/PalettePanel';
-import { HoverInfo } from '~/components/MapCanvas/types';
 import { newOtbm, openOtbm, closeMap } from '~/adapter/map';
 import { ActiveBrush, PaletteData } from '~/domain/palette';
 import { MIN_ZOOM, MAX_ZOOM, snapZoom } from '~/usecase/zoom';
+import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
 import { loadAssets, LoadedAssets, DEFAULT_DATA_DIR } from '~/adapter/assets';
 
 import './styles/index.css';
@@ -41,8 +41,13 @@ const App = () => {
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState<{ value: number; label: string } | null>(null);
   const [hover, setHover] = React.useState<HoverInfo | null>(null);
+  const [selectedItem, setSelectedItem] = React.useState<HoverItem | null>(null);
 
   const active = tabs.find((t) => t.id === activeId) ?? null;
+
+  React.useEffect(() => {
+    setSelectedItem(null);
+  }, [activeId]);
 
   const updateActive = (patch: Partial<MapTab>) =>
     setTabs((prev) => prev.map((t) => (t.id === activeId ? { ...t, ...patch } : t)));
@@ -175,6 +180,8 @@ const App = () => {
                 sprPath={assets.sprPath}
                 activeBrush={activeBrush}
                 onFloorChange={setFloorZ}
+                onSelect={setSelectedItem}
+                itemNames={assets.itemNames}
                 transparency={assets.transparency}
               />
             ) : (
@@ -207,6 +214,7 @@ const App = () => {
         zoom={active?.zoom ?? 1}
         status={error ?? status}
         onFloorChange={setFloorZ}
+        selectedItem={selectedItem}
         floorZ={active?.floorZ ?? 7}
       />
     </div>

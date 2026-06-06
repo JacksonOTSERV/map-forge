@@ -43,6 +43,7 @@ interface MeshInfo {
 const MapCanvas = ({
   map,
   items,
+  itemNames,
   sprPath,
   transparency,
   floorZ,
@@ -52,6 +53,7 @@ const MapCanvas = ({
   onZoomChange,
   onFloorChange,
   onHover,
+  onSelect,
   activeBrush
 }: MapCanvasProps) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -91,6 +93,7 @@ const MapCanvas = ({
   const inputs = React.useRef({
     map,
     items,
+    itemNames,
     sprPath,
     transparency,
     zoom,
@@ -99,12 +102,14 @@ const MapCanvas = ({
     onZoomChange,
     onFloorChange,
     onHover,
+    onSelect,
     floorZ,
     activeBrush
   });
   inputs.current = {
     map,
     items,
+    itemNames,
     sprPath,
     transparency,
     zoom,
@@ -113,6 +118,7 @@ const MapCanvas = ({
     onZoomChange,
     onFloorChange,
     onHover,
+    onSelect,
     floorZ,
     activeBrush
   };
@@ -679,6 +685,7 @@ const MapCanvas = ({
     selected.current = pos;
     moveDest.current = pos;
     moveDrag.current = { from: pos, startX: e.clientX, startY: e.clientY, active: false };
+    inputs.current.onSelect(hoverAt(pos).item);
   }
   function onMouseMove(e: React.MouseEvent) {
     if (painting.current) {
@@ -743,6 +750,7 @@ const MapCanvas = ({
       .then(() => {
         selected.current = dest;
         spriteVersion.current++;
+        inputs.current.onSelect(hoverAt(dest).item);
       })
       .catch((err) => console.error('Failed to move item', err))
       .finally(() => {
@@ -762,7 +770,7 @@ const MapCanvas = ({
   }
 
   function hoverAt(pos: Position): HoverInfo {
-    const { items } = inputs.current;
+    const { items, itemNames } = inputs.current;
     const ct = getTiles(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK), pos.z);
     if (ct === undefined) requestTiles(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK), pos.z);
     let found = -1;
@@ -782,8 +790,9 @@ const MapCanvas = ({
       if (count > 0) {
         const top = end - 1;
         const clientId = ct.clientIds[top];
+        const serverId = ct.serverIds[top];
         const thing = items.get(clientId);
-        item = { serverId: ct.serverIds[top], clientId, name: thing?.marketName ?? '', count };
+        item = { serverId, clientId, name: itemNames.get(serverId) ?? thing?.marketName ?? '', count };
       }
     }
     return { x: pos.x, y: pos.y, z: pos.z, hasTile: found >= 0, item };

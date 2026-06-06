@@ -9,6 +9,7 @@ export const DEFAULT_VERSION = 860;
 export interface LoadedAssets {
   items: Map<number, ThingType>;
   outfits: Map<number, ThingType>;
+  itemNames: Map<number, string>;
   sprPath: string;
   transparency: boolean;
   spritesCount: number;
@@ -52,6 +53,22 @@ async function readOtfi(dir: string): Promise<Partial<OtfiFlags>> {
   }
 }
 
+async function loadItemNames(dir: string): Promise<Map<number, string>> {
+  const names = new Map<number, string>();
+  let content: string;
+  try {
+    content = await invoke<string>('read_file_text', { path: `${dir}/items.xml` });
+  } catch {
+    return names;
+  }
+  const re = /<item\s+id="(\d+)"[^>]*\bname="([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    names.set(Number(m[1]), m[2]);
+  }
+  return names;
+}
+
 interface RustSprHeader {
   signature: number;
   extended: boolean;
@@ -66,6 +83,7 @@ export async function loadAssets(dir = DEFAULT_DATA_DIR, version = DEFAULT_VERSI
   const sprPath = `${dir}/${otfi.spritesFile ?? 'Tibia.spr'}`;
 
   const otbItemCount = await invoke<number>('load_otb', { path: `${dir}/items.otb` });
+  const itemNames = await loadItemNames(dir);
 
   const datResponse = await invoke<Uint8Array | ArrayBuffer>('parse_dat_file_bin', { path: datPath, version });
   const datBuf = datResponse instanceof Uint8Array ? datResponse : new Uint8Array(datResponse);
@@ -76,6 +94,7 @@ export async function loadAssets(dir = DEFAULT_DATA_DIR, version = DEFAULT_VERSI
   return {
     items: dat.items,
     outfits: dat.outfits,
+    itemNames,
     sprPath,
     transparency,
     spritesCount: sprHeader.sprite_count,
