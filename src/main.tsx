@@ -32,6 +32,7 @@ import { MIN_ZOOM, MAX_ZOOM, snapZoom } from '~/usecase/zoom';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
 import { loadAssets, LoadedAssets, DEFAULT_DATA_DIR } from '~/adapter/assets';
+import { addRecentMap, loadRecentMaps, clearRecentMaps } from '~/adapter/recentMaps';
 import { PANELS, PanelId, DockZone, FloatRect, DockLayout, DEFAULT_FLOAT_WIDTH, DEFAULT_FLOAT_HEIGHT } from '~/domain/dock';
 import {
   zoneOf,
@@ -71,6 +72,7 @@ const App = () => {
   const [status, setStatus] = React.useState('Loading client assets...');
   const [error, setError] = React.useState<string | null>(null);
   const [tabs, setTabs] = React.useState<MapTab[]>([]);
+  const [recent, setRecent] = React.useState<string[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState<{ value: number; label: string } | null>(null);
@@ -194,6 +196,14 @@ const App = () => {
     void getSetting('automagic', true).then(setAutomagic);
   }, []);
 
+  React.useEffect(() => {
+    void loadRecentMaps().then(setRecent);
+  }, []);
+
+  const clearRecent = () => {
+    void clearRecentMaps().then(() => setRecent([]));
+  };
+
   const toggleAutomagic = () =>
     setAutomagic((v) => {
       const next = !v;
@@ -204,6 +214,25 @@ const App = () => {
   React.useEffect(() => {
     setSelectedItem(null);
   }, [activeId]);
+
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'n') {
+        e.preventDefault();
+        void handleNew();
+      } else if (key === 'o') {
+        e.preventDefault();
+        void handleOpen();
+      } else if (key === 'w' && activeId) {
+        e.preventDefault();
+        closeTab(activeId);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [assets, busy, tabs, activeId]);
 
   React.useEffect(() => {
     if (!dragging) {
@@ -254,6 +283,29 @@ const App = () => {
       .catch((e) => setError(`Failed to load palette: ${e}`));
   }, [assets]);
 
+  async function openPath(path: string) {
+    if (!assets) return;
+    setBusy(true);
+    setProgress({ value: 0, label: 'Reading map...' });
+    setStatus('Reading map...');
+    try {
+      const data = await openOtbm(path, (_phase, value) => {
+        setProgress({ value, label: 'Reading map...' });
+      });
+      const name = path.split(/[\\/]/).pop() ?? 'map.otbm';
+      addTab(name, data);
+      const dims = `${data.bounds.minX}..${data.bounds.maxX} x ${data.bounds.minY}..${data.bounds.maxY}`;
+      setStatus(`${name} - ${data.tileCount} tiles - ${dims} - ${data.width}x${data.height}`);
+      void addRecentMap(path).then(setRecent);
+    } catch (e) {
+      setError(`Failed to open map: ${e}`);
+      setStatus('Map load failed');
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
   async function handleOpen() {
     if (!assets) return;
     const selected = await open({
@@ -263,25 +315,7 @@ const App = () => {
       filters: [{ name: 'OTBM Maps', extensions: ['otbm'] }]
     });
     if (!selected || typeof selected !== 'string') return;
-
-    setBusy(true);
-    setProgress({ value: 0, label: 'Reading map...' });
-    setStatus('Reading map...');
-    try {
-      const data = await openOtbm(selected, (_phase, value) => {
-        setProgress({ value, label: 'Reading map...' });
-      });
-      const name = selected.split(/[\\/]/).pop() ?? 'map.otbm';
-      addTab(name, data);
-      const dims = `${data.bounds.minX}..${data.bounds.maxX} x ${data.bounds.minY}..${data.bounds.maxY}`;
-      setStatus(`${name} - ${data.tileCount} tiles - ${dims} - ${data.width}x${data.height}`);
-    } catch (e) {
-      setError(`Failed to open map: ${e}`);
-      setStatus('Map load failed');
-    } finally {
-      setBusy(false);
-      setProgress(null);
-    }
+    await openPath(selected);
   }
 
   async function handleNew() {
@@ -385,7 +419,16 @@ const App = () => {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <Toolbar onNew={handleNew} onOpen={handleOpen} loading={busy || !assets} />
+      <Toolbar
+        recent={recent}
+        onNew={handleNew}
+        onOpen={handleOpen}
+        hasActive={!!active}
+        loading={busy || !assets}
+        onClearRecent={clearRecent}
+        onOpenRecent={(path) => void openPath(path)}
+        onCloseMap={() => activeId && closeTab(activeId)}
+      />
 
       <DndContext
         sensors={sensors}
