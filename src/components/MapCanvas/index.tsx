@@ -40,6 +40,13 @@ interface MeshInfo {
   lastUsed: number;
 }
 
+interface SelTile {
+  x: number;
+  y: number;
+  z: number;
+  all: boolean;
+}
+
 const MapCanvas = ({
   map,
   items,
@@ -139,18 +146,20 @@ const MapCanvas = ({
   const hoveredTile = React.useRef<Position | null>(null);
   const ghostRef = React.useRef<HTMLImageElement>(null);
   const highlightRef = React.useRef<HTMLDivElement>(null);
-  const selected = React.useRef<Position | null>(null);
-  const highlightedPos = React.useRef<Position | null>(null);
+  const selectionBoxRef = React.useRef<HTMLDivElement>(null);
+  const selection = React.useRef(new Map<string, SelTile>());
+  const boxSel = React.useRef<null | { startTile: Position; curTile: Position; additive: boolean }>(null);
   const moveDrag = React.useRef<null | { from: Position; startX: number; startY: number; active: boolean }>(null);
   const moveDest = React.useRef<Position | null>(null);
   const pendingMove = React.useRef<Float32Array | null>(null);
   const [panning, setPanning] = React.useState(false);
   const [moving, setMoving] = React.useState(false);
+  const [boxing, setBoxing] = React.useState(false);
 
   const paintable = activeTool === 'brush' && activeBrush != null && activeBrush.serverId != null;
   const canvasCursor = paintable
     ? DRAW_CURSOR
-    : activeTool === 'eraser'
+    : activeTool === 'eraser' || boxing
       ? 'crosshair'
       : panning || moving
         ? 'grabbing'
@@ -274,8 +283,8 @@ const MapCanvas = ({
     const { items } = inputs.current;
     const key = `${z},${cx},${cy}`;
     const ct = chunkTiles.current.get(key) as ChunkTiles | null | undefined;
-    const sel = selected.current;
-    const selHere = sel != null && sel.z === z;
+    const sel = selection.current;
+    const useSel = sel.size > 0;
     const inst: number[] = [];
     let complete = true;
 
@@ -285,7 +294,7 @@ const MapCanvas = ({
         const ty = ct.tileY[i];
         const end = ct.itemOffset[i + 1];
         const top = end - 1;
-        const tintTile = selHere && sel!.x === tx && sel!.y === ty;
+        const selEntry = useSel ? sel.get(`${z},${tx},${ty}`) : undefined;
         let drawElevation = 0;
         for (let ii = ct.itemOffset[i]; ii < end; ii++) {
           const thing = items.get(ct.clientIds[ii]);
@@ -294,7 +303,7 @@ const MapCanvas = ({
           const py = thing.patternY > 0 ? ty % thing.patternY : 0;
           const ox = (thing.offsetX || 0) + drawElevation;
           const oy = (thing.offsetY || 0) + drawElevation;
-          const tint = tintTile && ii === top ? 1 : 0;
+          const tint = selEntry ? (selEntry.all || ii === top ? 1 : 0) : 0;
 
           for (let l = 0; l < thing.layers; l++) {
             for (let h = 0; h < thing.height; h++) {
@@ -391,14 +400,6 @@ const MapCanvas = ({
     const zoom = zoomRef.current;
     frameTick.current++;
 
-    const sel = selected.current;
-    const prev = highlightedPos.current;
-    if (sel?.x !== prev?.x || sel?.y !== prev?.y || sel?.z !== prev?.z) {
-      if (prev) invalidateChunkMesh(prev.x, prev.y, prev.z);
-      if (sel) invalidateChunkMesh(sel.x, sel.y, sel.z);
-      highlightedPos.current = sel ? { x: sel.x, y: sel.y, z: sel.z } : null;
-    }
-
     const dpr = window.devicePixelRatio || 1;
     const vw = canvas.clientWidth;
     const vh = canvas.clientHeight;
@@ -493,6 +494,7 @@ const MapCanvas = ({
     lastChunksDrawn.current = drawn;
 
     updateGhost(camX, camY, zoom);
+    updateSelectionBox(camX, camY, zoom);
 
     flushTileRequests();
 
@@ -646,6 +648,64 @@ const MapCanvas = ({
     outline.style.transform = transform;
   }
 
+  function updateSelectionBox(camX: number, camY: number, zoom: number) {
+    const el = selectionBoxRef.current;
+    if (!el) return;
+    const bs = boxSel.current;
+    if (!bs) {
+      el.style.display = 'none';
+      return;
+    }
+    const minX = Math.min(bs.startTile.x, bs.curTile.x);
+    const minY = Math.min(bs.startTile.y, bs.curTile.y);
+    const maxX = Math.max(bs.startTile.x, bs.curTile.x);
+    const maxY = Math.max(bs.startTile.y, bs.curTile.y);
+    const screenX = (minX * TILE - camX) * zoom;
+    const screenY = (minY * TILE - camY) * zoom;
+    el.style.display = 'block';
+    el.style.width = `${(maxX - minX + 1) * TILE * zoom}px`;
+    el.style.height = `${(maxY - minY + 1) * TILE * zoom}px`;
+    el.style.transform = `translate(${screenX}px, ${screenY}px)`;
+  }
+
+  function invalidateTileChunks(tiles: Iterable<{ x: number; y: number; z: number }>) {
+    const chunks = new Set<string>();
+    for (const t of tiles) chunks.add(`${t.z},${Math.floor(t.x / CHUNK)},${Math.floor(t.y / CHUNK)}`);
+    for (const key of chunks) {
+      gl.current?.deleteChunkMesh(key);
+      chunkMesh.current.delete(key);
+    }
+  }
+
+  function clearSelection() {
+    if (selection.current.size === 0) return;
+    invalidateTileChunks(selection.current.values());
+    selection.current.clear();
+  }
+
+  function selectTile(pos: Position, all: boolean) {
+    clearSelection();
+    selection.current.set(`${pos.z},${pos.x},${pos.y}`, { x: pos.x, y: pos.y, z: pos.z, all });
+    invalidateChunkMesh(pos.x, pos.y, pos.z);
+  }
+
+  function selectBox(z: number, ax: number, ay: number, bx: number, by: number, additive: boolean) {
+    if (!additive) clearSelection();
+    const minX = Math.min(ax, bx);
+    const maxX = Math.max(ax, bx);
+    const minY = Math.min(ay, by);
+    const maxY = Math.max(ay, by);
+    const added: SelTile[] = [];
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const tile = { x, y, z, all: true };
+        selection.current.set(`${z},${x},${y}`, tile);
+        added.push(tile);
+      }
+    }
+    invalidateTileChunks(added);
+  }
+
   function buildTopItemMesh(tile: Position, shiftTilesX: number, shiftTilesY: number): Float32Array | null {
     const { items, floorZ } = inputs.current;
     if (tile.z !== floorZ) return null;
@@ -713,6 +773,12 @@ const MapCanvas = ({
 
     const tool = inputs.current.activeTool;
     const brush = inputs.current.activeBrush;
+    if (tool === 'select' && e.shiftKey) {
+      const pos = tileUnderCursor(e);
+      boxSel.current = { startTile: pos, curTile: pos, additive: e.ctrlKey };
+      setBoxing(true);
+      return;
+    }
     if (tool === 'brush' && brush && brush.serverId != null) {
       painting.current = true;
       lastPaintKey.current = null;
@@ -727,7 +793,7 @@ const MapCanvas = ({
     }
 
     const pos = tileUnderCursor(e);
-    selected.current = pos;
+    selectTile(pos, false);
     moveDest.current = pos;
     moveDrag.current = { from: pos, startX: e.clientX, startY: e.clientY, active: false };
     inputs.current.onSelect(hoverAt(pos).item);
@@ -743,6 +809,8 @@ const MapCanvas = ({
         x: drag.current.camX - (e.clientX - drag.current.startX) / z,
         y: drag.current.camY - (e.clientY - drag.current.startY) / z
       };
+    } else if (boxSel.current) {
+      boxSel.current.curTile = tileUnderCursor(e);
     } else if (moveDrag.current) {
       const md = moveDrag.current;
       if (!md.active) {
@@ -764,6 +832,13 @@ const MapCanvas = ({
     }
   }
   function onMouseUp() {
+    const bs = boxSel.current;
+    if (bs) {
+      boxSel.current = null;
+      setBoxing(false);
+      selectBox(bs.startTile.z, bs.startTile.x, bs.startTile.y, bs.curTile.x, bs.curTile.y, bs.additive);
+      inputs.current.onSelect(hoverAt(bs.curTile).item);
+    }
     finishMove();
     drag.current = null;
     painting.current = false;
@@ -772,6 +847,8 @@ const MapCanvas = ({
     setPanning(false);
   }
   function onMouseLeave() {
+    boxSel.current = null;
+    setBoxing(false);
     finishMove();
     drag.current = null;
     painting.current = false;
@@ -797,7 +874,7 @@ const MapCanvas = ({
     moveItem(inputs.current.map.id, from.z, from.x, from.y, dest.x, dest.y)
       .then(() => Promise.all([refetchChunkNow(from.x, from.y, from.z), refetchChunkNow(dest.x, dest.y, dest.z)]))
       .then(() => {
-        selected.current = dest;
+        selectTile(dest, false);
         spriteVersion.current++;
         inputs.current.onSelect(hoverAt(dest).item);
       })
@@ -808,13 +885,15 @@ const MapCanvas = ({
   }
 
   function deleteSelected() {
-    const pos = selected.current;
-    if (!pos) return;
-    deleteItem(inputs.current.map.id, pos.z, pos.x, pos.y)
-      .then(() => refetchChunkNow(pos.x, pos.y, pos.z))
+    const tiles = [...selection.current.values()];
+    if (tiles.length === 0) return;
+    const chunks = new Map<string, Position>();
+    for (const t of tiles) chunks.set(`${t.z},${Math.floor(t.x / CHUNK)},${Math.floor(t.y / CHUNK)}`, t);
+    Promise.all(tiles.map((t) => deleteItem(inputs.current.map.id, t.z, t.x, t.y)))
+      .then(() => Promise.all([...chunks.values()].map((t) => refetchChunkNow(t.x, t.y, t.z))))
       .then(() => {
         spriteVersion.current++;
-        inputs.current.onSelect(hoverAt(pos).item);
+        inputs.current.onSelect(hoverAt(tiles[0]).item);
       })
       .catch((err) => console.error('Failed to delete item', err));
   }
@@ -894,7 +973,7 @@ const MapCanvas = ({
     if (inputs.current.activeTool !== 'select') inputs.current.onToolChange('select');
     const tile = tileUnderCursor(e);
     const info = hoverAt(tile);
-    selected.current = tile;
+    selectTile(tile, false);
     inputs.current.onSelect(info.item);
     const dest = inputs.current.map.teleports.get(`${tile.x},${tile.y},${tile.z}`) ?? null;
     setMenu({ clientX: e.clientX, clientY: e.clientY, tile, dest, item: info.item });
@@ -956,7 +1035,7 @@ const MapCanvas = ({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
-      if (e.key === 'Delete' && selected.current) {
+      if (e.key === 'Delete' && selection.current.size > 0) {
         e.preventDefault();
         deleteSelected();
       }
@@ -988,6 +1067,11 @@ const MapCanvas = ({
         ref={highlightRef}
         style={{ transformOrigin: 'top left' }}
         className="pointer-events-none absolute left-0 top-0 hidden rounded-[2px] border border-primary/70 bg-primary/5"
+      />
+      <div
+        ref={selectionBoxRef}
+        style={{ transformOrigin: 'top left' }}
+        className="pointer-events-none absolute left-0 top-0 hidden border border-dashed border-primary bg-primary/10"
       />
       {glError && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-destructive">
