@@ -1,10 +1,35 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use tauri::ipc::Response;
 
 use crate::MapState;
 
 pub(crate) const CHUNK: u32 = 32;
+
+pub(crate) const ACTION_PAINT: u8 = 1;
+pub(crate) const ACTION_ERASE: u8 = 2;
+pub(crate) const ACTION_MOVE: u8 = 3;
+pub(crate) const ACTION_DELETE: u8 = 4;
+
+const UNDO_LIMIT: usize = 200;
+const MERGE_WINDOW: Duration = Duration::from_millis(500);
+
+struct TileChange {
+	z: u8,
+	pos: u32,
+	before: Vec<(u16, u16)>,
+	after: Vec<(u16, u16)>,
+}
+
+#[derive(Default)]
+struct History {
+	recording: Option<HashMap<(u8, u32), Vec<(u16, u16)>>>,
+	undo: Vec<Vec<TileChange>>,
+	redo: Vec<Vec<TileChange>>,
+	last_kind: u8,
+	last_commit: Option<Instant>,
+}
 
 pub struct MapModel {
 	pub(crate) width: u16,
@@ -22,6 +47,7 @@ pub struct MapModel {
 	pub(crate) teleports: Vec<u8>,
 	pub(crate) teleport_count: u32,
 	pub(crate) edits: HashMap<u8, HashMap<u32, HashMap<u32, Vec<(u16, u16)>>>>,
+	history: History,
 }
 
 #[derive(Default)]
@@ -124,6 +150,7 @@ pub(crate) fn build_map_model(
 		teleports,
 		teleport_count,
 		edits: HashMap::new(),
+		history: History::default(),
 	}
 }
 
@@ -228,9 +255,97 @@ pub(crate) fn stack_at(m: &MapModel, z: u8, x: u16, y: u16) -> Vec<(u16, u16)> {
 pub(crate) fn tile_stack_mut<'a>(m: &'a mut MapModel, z: u8, x: u16, y: u16) -> &'a mut Vec<(u16, u16)> {
 	let chunk_key = chunk_key_of(x, y);
 	let pos = (x as u32) << 16 | y as u32;
+	if m.history.recording.as_ref().is_some_and(|r| !r.contains_key(&(z, pos))) {
+		let snapshot = stack_at(m, z, x, y);
+		m.history.recording.as_mut().unwrap().insert((z, pos), snapshot);
+	}
 	let known = m.edits.get(&z).and_then(|c| c.get(&chunk_key)).is_some_and(|t| t.contains_key(&pos));
 	let base = if known { Vec::new() } else { base_tile_items(m, z, chunk_key, x, y) };
 	m.edits.entry(z).or_default().entry(chunk_key).or_default().entry(pos).or_insert(base)
+}
+
+impl MapModel {
+	pub(crate) fn record_begin(&mut self) {
+		if self.history.recording.is_none() {
+			self.history.recording = Some(HashMap::new());
+		}
+	}
+
+	pub(crate) fn record_commit(&mut self, kind: u8) {
+		let Some(before) = self.history.recording.take() else {
+			return;
+		};
+		let mut changes: Vec<TileChange> = before
+			.into_iter()
+			.filter_map(|((z, pos), before)| {
+				let after = stack_at(self, z, (pos >> 16) as u16, (pos & 0xFFFF) as u16);
+				(before != after).then_some(TileChange { z, pos, before, after })
+			})
+			.collect();
+		if changes.is_empty() {
+			return;
+		}
+
+		let mergeable = matches!(kind, ACTION_PAINT | ACTION_ERASE)
+			&& self.history.last_kind == kind
+			&& self.history.redo.is_empty()
+			&& self.history.last_commit.is_some_and(|t| t.elapsed() < MERGE_WINDOW);
+
+		if mergeable {
+			if let Some(group) = self.history.undo.last_mut() {
+				for ch in changes.drain(..) {
+					match group.iter_mut().find(|c| c.z == ch.z && c.pos == ch.pos) {
+						Some(existing) => existing.after = ch.after,
+						None => group.push(ch),
+					}
+				}
+			}
+		} else {
+			self.history.redo.clear();
+			self.history.undo.push(changes);
+			if self.history.undo.len() > UNDO_LIMIT {
+				self.history.undo.remove(0);
+			}
+		}
+		self.history.last_kind = kind;
+		self.history.last_commit = Some(Instant::now());
+	}
+
+	fn set_overlay(&mut self, z: u8, pos: u32, stack: Vec<(u16, u16)>) {
+		let chunk_key = chunk_key_of((pos >> 16) as u16, (pos & 0xFFFF) as u16);
+		self.edits.entry(z).or_default().entry(chunk_key).or_default().insert(pos, stack);
+	}
+
+	pub(crate) fn undo(&mut self) -> Vec<(u8, u32)> {
+		let Some(changes) = self.history.undo.pop() else {
+			return Vec::new();
+		};
+		let touched = self.apply(&changes, true);
+		self.history.redo.push(changes);
+		self.history.last_commit = None;
+		touched
+	}
+
+	pub(crate) fn redo(&mut self) -> Vec<(u8, u32)> {
+		let Some(changes) = self.history.redo.pop() else {
+			return Vec::new();
+		};
+		let touched = self.apply(&changes, false);
+		self.history.undo.push(changes);
+		self.history.last_commit = None;
+		touched
+	}
+
+	fn apply(&mut self, changes: &[TileChange], to_before: bool) -> Vec<(u8, u32)> {
+		let mut touched: HashSet<(u8, u32)> = HashSet::new();
+		for ch in changes {
+			let stack = if to_before { ch.before.clone() } else { ch.after.clone() };
+			self.set_overlay(ch.z, ch.pos, stack);
+			let chunk_key = chunk_key_of((ch.pos >> 16) as u16, (ch.pos & 0xFFFF) as u16);
+			touched.insert((ch.z, chunk_key));
+		}
+		touched.into_iter().collect()
+	}
 }
 
 pub(crate) fn store_map(store: &mut MapStore, model: MapModel, meta: Vec<u8>) -> Vec<u8> {
@@ -243,9 +358,8 @@ pub(crate) fn store_map(store: &mut MapStore, model: MapModel, meta: Vec<u8>) ->
 	out
 }
 
-#[tauri::command]
-pub fn new_otbm(width: u16, height: u16, map_state: tauri::State<MapState>) -> Result<Response, String> {
-	let model = MapModel {
+pub(crate) fn empty_model(width: u16, height: u16) -> MapModel {
+	MapModel {
 		width,
 		height,
 		min_x: 0,
@@ -261,7 +375,13 @@ pub fn new_otbm(width: u16, height: u16, map_state: tauri::State<MapState>) -> R
 		teleports: Vec::new(),
 		teleport_count: 0,
 		edits: HashMap::new(),
-	};
+		history: History::default(),
+	}
+}
+
+#[tauri::command]
+pub fn new_otbm(width: u16, height: u16, map_state: tauri::State<MapState>) -> Result<Response, String> {
+	let model = empty_model(width, height);
 	let meta = serialize_meta(&model);
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	Ok(Response::new(store_map(&mut guard, model, meta)))
@@ -278,6 +398,20 @@ pub fn get_map_chunks(map_id: u32, z: u8, keys: Vec<u32>, map_state: tauri::Stat
 	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let model = guard.maps.get(&map_id).ok_or("map not loaded - call open_otbm first")?;
 	Ok(Response::new(serialize_chunks(model, z, &keys)))
+}
+
+#[tauri::command]
+pub fn undo_edit(map_id: u32, map_state: tauri::State<MapState>) -> Result<Vec<(u8, u32)>, String> {
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	Ok(m.undo())
+}
+
+#[tauri::command]
+pub fn redo_edit(map_id: u32, map_state: tauri::State<MapState>) -> Result<Vec<(u8, u32)>, String> {
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	Ok(m.redo())
 }
 
 #[cfg(test)]

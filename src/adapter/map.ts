@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
-import { MapMeta, Position, ChunkTiles, OtbmProgress } from '~/domain/map';
+import { MapMeta, Position, ChunkTiles, PreviewTile, OtbmProgress } from '~/domain/map';
 
 export const packChunkKey = (cx: number, cy: number): number => (cx << 16) | cy;
 
@@ -93,6 +93,29 @@ export async function deleteItem(mapId: number, z: number, x: number, y: number,
   return invoke<number[]>('delete_item', { mapId, z, x, y, automagic });
 }
 
+export async function eraseArea(
+  mapId: number,
+  z: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  automagic: boolean
+): Promise<number[]> {
+  return invoke<number[]>('erase_area', { mapId, z, x0, y0, x1, y1, automagic });
+}
+
+export async function deleteSelection(
+  mapId: number,
+  z: number,
+  xs: number[],
+  ys: number[],
+  all: boolean[],
+  automagic: boolean
+): Promise<number[]> {
+  return invoke<number[]>('delete_selection', { mapId, z, xs, ys, all, automagic });
+}
+
 export async function moveItem(
   mapId: number,
   z: number,
@@ -103,6 +126,45 @@ export async function moveItem(
   automagic: boolean
 ): Promise<number[]> {
   return invoke<number[]>('move_item', { mapId, z, fromX, fromY, toX, toY, automagic });
+}
+
+export async function previewPaint(
+  mapId: number,
+  z: number,
+  xs: number[],
+  ys: number[],
+  serverId: number,
+  isGround: boolean,
+  isDoodad: boolean
+): Promise<PreviewTile[]> {
+  const response = await invoke<Uint8Array | ArrayBuffer>('preview_paint', { mapId, z, xs, ys, serverId, isGround, isDoodad });
+  const u8 = toUint8(response);
+  const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let o = 0;
+  const count = view.getUint32(o, true);
+  o += 4;
+  const tiles: PreviewTile[] = [];
+  for (let i = 0; i < count; i++) {
+    const x = view.getUint16(o, true);
+    const y = view.getUint16(o + 2, true);
+    const n = view.getUint16(o + 4, true);
+    o += 6;
+    const clientIds = new Uint16Array(n);
+    for (let j = 0; j < n; j++) {
+      clientIds[j] = view.getUint16(o, true);
+      o += 2;
+    }
+    tiles.push({ x, y, clientIds });
+  }
+  return tiles;
+}
+
+export async function undoEdit(mapId: number): Promise<[number, number][]> {
+  return invoke<[number, number][]>('undo_edit', { mapId });
+}
+
+export async function redoEdit(mapId: number): Promise<[number, number][]> {
+  return invoke<[number, number][]>('redo_edit', { mapId });
 }
 
 export async function fetchMapChunks(mapId: number, z: number, keys: number[]): Promise<Map<string, ChunkTiles>> {

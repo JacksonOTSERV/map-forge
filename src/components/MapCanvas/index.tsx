@@ -110,6 +110,12 @@ const MapCanvas = (props: MapCanvasProps) => {
         className="pointer-events-none absolute left-0 top-0 hidden rounded-[2px] border border-primary/70 bg-primary/5"
       />
       <div
+        aria-hidden
+        ref={scene.boxGhostRef}
+        className="pointer-events-none absolute left-0 top-0 hidden"
+        style={{ transformOrigin: 'top left', imageRendering: 'pixelated' }}
+      />
+      <div
         ref={scene.selectionBoxRef}
         style={{ transformOrigin: 'top left' }}
         className="pointer-events-none absolute left-0 top-0 hidden border border-dashed border-primary bg-primary/10"

@@ -1,8 +1,8 @@
 import React from 'react';
 
-import { ChunkTiles } from '~/domain/map';
 import { getSpriteIndex } from '~/domain/tibia';
 import { visibleFloorRange } from '~/usecase/floors';
+import { ChunkTiles, PreviewTile } from '~/domain/map';
 import { slotUV, GLRenderer } from '~/usecase/glRenderer';
 import { packChunkKey, fetchMapChunks } from '~/adapter/map';
 import { MapCanvasProps } from '~/components/MapCanvas/types';
@@ -142,19 +142,79 @@ export function useMapRenderer(deps: RendererDeps) {
     });
   }
 
+  function buildPreviewGhost(previewTiles: PreviewTile[], missing: Set<number>): Float32Array {
+    const { items } = inputs.current;
+    const inst: number[] = [];
+    for (const t of previewTiles) {
+      const tx = t.x;
+      const ty = t.y;
+      let drawElevation = 0;
+      for (let ii = 0; ii < t.clientIds.length; ii++) {
+        const thing = items.get(t.clientIds[ii]);
+        if (!thing || thing.spriteIndex.length === 0) continue;
+        const px = thing.patternX > 0 ? tx % thing.patternX : 0;
+        const py = thing.patternY > 0 ? ty % thing.patternY : 0;
+        const ox = (thing.offsetX || 0) + drawElevation;
+        const oy = (thing.offsetY || 0) + drawElevation;
+
+        for (let l = 0; l < thing.layers; l++) {
+          for (let h = 0; h < thing.height; h++) {
+            for (let w = 0; w < thing.width; w++) {
+              const sid = thing.spriteIndex[getSpriteIndex(thing, w, h, l, px, py, 0, 0)];
+              if (!sid) continue;
+              const data = atlas.data.current.get(sid);
+              if (!data) {
+                missing.add(sid);
+                continue;
+              }
+              atlas.lastUsed.current.set(sid, frameTick.current);
+              if (data.empty) continue;
+              const slot = atlas.slotFor(sid, data);
+              if (slot < 0) continue;
+              const { u0, v0 } = slotUV(slot);
+              inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, 0);
+            }
+          }
+        }
+
+        if (thing.hasElevation) drawElevation = Math.min(drawElevation + thing.elevation, MAX_ELEVATION);
+      }
+    }
+    return new Float32Array(inst);
+  }
+
   function updateGhost(camX: number, camY: number, zoom: number) {
     const ghost = scene.ghostRef.current;
     const outline = scene.highlightRef.current;
     if (!ghost || !outline) return;
 
+    const tool = inputs.current.activeTool;
     const brush = inputs.current.activeBrush;
     const tile = scene.hoveredTile.current;
-    if (inputs.current.activeTool !== 'brush' || !brush || brush.serverId == null || !tile) {
+    const showBrush = tool === 'brush' && brush != null && brush.serverId != null;
+    const showEraser = tool === 'eraser';
+
+    if (selection.box.current || !tile || (!showBrush && !showEraser)) {
       ghost.style.display = 'none';
       outline.style.display = 'none';
       return;
     }
 
+    if (showEraser) {
+      const s = TILE * zoom;
+      ghost.style.display = 'none';
+      outline.style.display = 'block';
+      outline.style.width = `${s}px`;
+      outline.style.height = `${s}px`;
+      outline.style.transform = `translate(${(tile.x * TILE - camX) * zoom}px, ${(tile.y * TILE - camY) * zoom}px)`;
+      outline.style.borderColor = 'rgb(248, 113, 113)';
+      outline.style.backgroundColor = 'rgba(239, 68, 68, 0.18)';
+      return;
+    }
+
+    if (!brush) return;
+    outline.style.borderColor = '';
+    outline.style.backgroundColor = '';
     const cols = brush.cols ?? 1;
     const rows = brush.rows ?? 1;
     const screenX = ((tile.x + 1 - cols) * TILE - camX) * zoom;
@@ -181,10 +241,11 @@ export function useMapRenderer(deps: RendererDeps) {
 
   function updateSelectionBox(camX: number, camY: number, zoom: number) {
     const el = scene.selectionBoxRef.current;
-    if (!el) return;
+    const ghost = scene.boxGhostRef.current;
     const bs = selection.box.current;
     if (!bs) {
-      el.style.display = 'none';
+      if (el) el.style.display = 'none';
+      if (ghost) ghost.style.display = 'none';
       return;
     }
     const minX = Math.min(bs.startTile.x, bs.curTile.x);
@@ -193,10 +254,43 @@ export function useMapRenderer(deps: RendererDeps) {
     const maxY = Math.max(bs.startTile.y, bs.curTile.y);
     const screenX = (minX * TILE - camX) * zoom;
     const screenY = (minY * TILE - camY) * zoom;
-    el.style.display = 'block';
-    el.style.width = `${(maxX - minX + 1) * TILE * zoom}px`;
-    el.style.height = `${(maxY - minY + 1) * TILE * zoom}px`;
-    el.style.transform = `translate(${screenX}px, ${screenY}px)`;
+    const w = (maxX - minX + 1) * TILE * zoom;
+    const h = (maxY - minY + 1) * TILE * zoom;
+    const transform = `translate(${screenX}px, ${screenY}px)`;
+
+    if (el) {
+      el.style.display = 'block';
+      el.style.width = `${w}px`;
+      el.style.height = `${h}px`;
+      el.style.transform = transform;
+    }
+
+    if (!ghost) return;
+    const tool = inputs.current.activeTool;
+    const brush = inputs.current.activeBrush;
+    if (tool === 'brush' && brush && brush.serverId != null && brush.preview && !inputs.current.automagic) {
+      const cols = brush.cols ?? 1;
+      const rows = brush.rows ?? 1;
+      ghost.style.display = 'block';
+      ghost.style.transform = transform;
+      ghost.style.width = `${w}px`;
+      ghost.style.height = `${h}px`;
+      ghost.style.opacity = '0.5';
+      ghost.style.backgroundColor = 'transparent';
+      ghost.style.backgroundImage = `url(${brush.preview})`;
+      ghost.style.backgroundRepeat = 'repeat';
+      ghost.style.backgroundSize = `${cols * TILE * zoom}px ${rows * TILE * zoom}px`;
+    } else if (tool === 'eraser') {
+      ghost.style.display = 'block';
+      ghost.style.transform = transform;
+      ghost.style.width = `${w}px`;
+      ghost.style.height = `${h}px`;
+      ghost.style.opacity = '1';
+      ghost.style.backgroundImage = 'none';
+      ghost.style.backgroundColor = 'rgba(239, 68, 68, 0.28)';
+    } else {
+      ghost.style.display = 'none';
+    }
   }
 
   function draw() {
@@ -304,6 +398,12 @@ export function useMapRenderer(deps: RendererDeps) {
       if (ghost) renderer.drawGhost(ghost, camX, camY, scale, 0.55);
     } else if (scene.pendingMove.current) {
       renderer.drawGhost(scene.pendingMove.current, camX, camY, scale, 0.55);
+    }
+
+    const previewTiles = scene.boxGhostTiles.current;
+    if (previewTiles && previewTiles.length > 0 && selection.box.current) {
+      const ghost = buildPreviewGhost(previewTiles, missing);
+      if (ghost.length > 0) renderer.drawGhost(ghost, camX, camY, scale, 0.6);
     }
 
     renderer.endFrame();

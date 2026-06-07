@@ -27,9 +27,9 @@ use commands::{
 	close_spr_file, load_materials, load_otb, map_client_ids, open_spr_file, parse_dat_file_bin, read_file, read_file_header,
 	read_file_text, read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic,
 };
-use map_edit::{delete_item, move_item, paint_tiles};
+use map_edit::{delete_item, delete_selection, erase_area, move_item, paint_tiles, preview_paint};
 use map_load::open_otbm;
-use map_model::{close_map, get_map_chunks, new_otbm, MapStore};
+use map_model::{close_map, get_map_chunks, new_otbm, redo_edit, undo_edit, MapStore};
 
 pub(crate) type OtbState = Arc<Mutex<Option<OtbItems>>>;
 pub(crate) type MaterialsState = Arc<Mutex<Option<Materials>>>;
@@ -75,8 +75,13 @@ pub fn run() {
 			new_otbm,
 			close_map,
 			paint_tiles,
+			preview_paint,
 			move_item,
 			delete_item,
+			erase_area,
+			delete_selection,
+			undo_edit,
+			redo_edit,
 			get_map_chunks,
 			set_window_acrylic,
 			read_settings,

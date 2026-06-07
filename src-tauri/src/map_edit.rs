@@ -1,6 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::map_model::{chunk_key_of, stack_at, tile_stack_mut, MapModel};
+use tauri::ipc::Response;
+
+use crate::map_model::{
+	chunk_key_of, empty_model, push_u16, push_u32, stack_at, tile_stack_mut, MapModel, ACTION_DELETE, ACTION_ERASE, ACTION_MOVE,
+	ACTION_PAINT, CHUNK,
+};
 use crate::materials::{self, Materials};
 use crate::otb::OtbItems;
 use crate::{MapState, MaterialsState, OtbState, PlaceFlags, PlacementState};
@@ -277,6 +282,15 @@ where
 	touched
 }
 
+fn auto_all(m: &mut MapModel, mats: &Materials, place: &HashMap<u16, PlaceFlags>, otb: &OtbItems, z: u8, tiles: &HashSet<(u16, u16)>) -> HashSet<u32> {
+	let mut touched: HashSet<u32> = HashSet::new();
+	touched.extend(borderize(m, mats, place, otb, z, tiles, true));
+	touched.extend(wallize(m, mats, otb, z, tiles));
+	touched.extend(realign8(m, mats, otb, z, tiles, Materials::table_brush_for, Materials::table_id_for));
+	touched.extend(realign8(m, mats, otb, z, tiles, Materials::carpet_brush_for, Materials::carpet_id_for));
+	touched
+}
+
 #[allow(clippy::too_many_arguments)]
 fn auto_after_change(
 	m: &mut MapModel,
@@ -301,6 +315,57 @@ fn auto_after_change(
 	}
 	if mats.carpet_brush_for(server).is_some() {
 		touched.extend(realign8(m, mats, otb, z, tiles, Materials::carpet_brush_for, Materials::carpet_id_for));
+	}
+	touched
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_paint(
+	m: &mut MapModel,
+	mats: Option<&Materials>,
+	place: &HashMap<u16, PlaceFlags>,
+	otb: &OtbItems,
+	z: u8,
+	xs: &[u16],
+	ys: &[u16],
+	server_id: u16,
+	client_id: u16,
+	is_ground: bool,
+	is_doodad: bool,
+	automagic: bool,
+) -> HashSet<u32> {
+	let mut touched: HashSet<u32> = HashSet::new();
+	let mut painted: HashSet<(u16, u16)> = HashSet::new();
+	let mut painted_ground = false;
+
+	let doodad_brush = if is_doodad { mats.and_then(|mt| mt.doodad_brush_for(server_id)) } else { None };
+
+	for i in 0..xs.len() {
+		let (x, y) = (xs[i], ys[i]);
+		if let (Some(mats), Some(brush)) = (mats, doodad_brush) {
+			for (dx, dy, item) in mats.doodad_placement(brush, tile_seed(x, y)) {
+				let (tx, ty) = (x as i32 + dx, y as i32 + dy);
+				if tx < 0 || ty < 0 || tx > u16::MAX as i32 || ty > u16::MAX as i32 {
+					continue;
+				}
+				let (tx, ty) = (tx as u16, ty as u16);
+				let client = otb.client_id(item).unwrap_or(0);
+				insert_ordered(tile_stack_mut(m, z, tx, ty), place, Some(mats), client, item);
+				touched.insert(chunk_key_of(tx, ty));
+				painted.insert((tx, ty));
+			}
+			continue;
+		}
+		insert_ordered(tile_stack_mut(m, z, x, y), place, mats, client_id, server_id);
+		painted_ground |= is_ground;
+		touched.insert(chunk_key_of(x, y));
+		painted.insert((x, y));
+	}
+
+	if automagic {
+		if let Some(mats) = mats {
+			touched.extend(auto_after_change(m, mats, place, otb, z, &painted, client_id, server_id, painted_ground));
+		}
 	}
 	touched
 }
@@ -335,43 +400,87 @@ pub fn paint_tiles(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-
-	let mut touched: HashSet<u32> = HashSet::new();
-	let mut painted: HashSet<(u16, u16)> = HashSet::new();
-	let mut painted_ground = false;
-
-	let doodad_brush = if is_doodad { mats.and_then(|mt| mt.doodad_brush_for(server_id)) } else { None };
-
-	for i in 0..xs.len() {
-		let (x, y) = (xs[i], ys[i]);
-		if let (Some(mats), Some(brush)) = (mats, doodad_brush) {
-			for (dx, dy, item) in mats.doodad_placement(brush, tile_seed(x, y)) {
-				let (tx, ty) = (x as i32 + dx, y as i32 + dy);
-				if tx < 0 || ty < 0 || tx > u16::MAX as i32 || ty > u16::MAX as i32 {
-					continue;
-				}
-				let (tx, ty) = (tx as u16, ty as u16);
-				let client = otb.client_id(item).unwrap_or(0);
-				insert_ordered(tile_stack_mut(m, z, tx, ty), &place, Some(mats), client, item);
-				touched.insert(chunk_key_of(tx, ty));
-				painted.insert((tx, ty));
-			}
-			continue;
-		}
-		let stack = tile_stack_mut(m, z, x, y);
-		insert_ordered(stack, &place, mats, client_id, server_id);
-		painted_ground |= is_ground;
-		touched.insert(chunk_key_of(x, y));
-		painted.insert((x, y));
-	}
-
-	if automagic {
-		if let Some(mats) = mats {
-			touched.extend(auto_after_change(m, mats, &place, otb, z, &painted, client_id, server_id, painted_ground));
-		}
-	}
-
+	m.record_begin();
+	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, automagic);
+	m.record_commit(ACTION_PAINT);
 	Ok(touched.into_iter().collect())
+}
+
+const PREVIEW_AREA_CAP: u32 = 4096;
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn preview_paint(
+	map_id: u32,
+	z: u8,
+	xs: Vec<u16>,
+	ys: Vec<u16>,
+	server_id: u16,
+	is_ground: bool,
+	is_doodad: bool,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+) -> Result<Response, String> {
+	let empty = || Response::new(vec![0u8; 4]);
+	if xs.len() != ys.len() || xs.is_empty() {
+		return Ok(empty());
+	}
+
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let client_id = otb.client_id(server_id).unwrap_or(0);
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let Some(mats) = materials_guard.as_ref() else {
+		return Ok(empty());
+	};
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let real = guard.maps.get(&map_id).ok_or("map not loaded")?;
+
+	let min_x = *xs.iter().min().unwrap();
+	let max_x = *xs.iter().max().unwrap();
+	let min_y = *ys.iter().min().unwrap();
+	let max_y = *ys.iter().max().unwrap();
+	let area = (max_x as u32 - min_x as u32 + 1) * (max_y as u32 - min_y as u32 + 1);
+	if area > PREVIEW_AREA_CAP {
+		return Ok(empty());
+	}
+
+	let clamp = |v: i32| v.clamp(0, u16::MAX as i32) as u16;
+	let mut scratch = empty_model(real.width, real.height);
+	for y in clamp(min_y as i32 - 2)..=clamp(max_y as i32 + 2) {
+		for x in clamp(min_x as i32 - 2)..=clamp(max_x as i32 + 2) {
+			let s = stack_at(real, z, x, y);
+			if !s.is_empty() {
+				*tile_stack_mut(&mut scratch, z, x, y) = s;
+			}
+		}
+	}
+
+	run_paint(&mut scratch, Some(mats), &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, true);
+
+	let mut out: Vec<u8> = Vec::new();
+	push_u32(&mut out, 0);
+	let mut count = 0u32;
+	for y in clamp(min_y as i32 - 1)..=clamp(max_y as i32 + 1) {
+		for x in clamp(min_x as i32 - 1)..=clamp(max_x as i32 + 1) {
+			let new = stack_at(&scratch, z, x, y);
+			if new == stack_at(real, z, x, y) {
+				continue;
+			}
+			push_u16(&mut out, x);
+			push_u16(&mut out, y);
+			push_u16(&mut out, new.len() as u16);
+			for (client, _) in &new {
+				push_u16(&mut out, *client);
+			}
+			count += 1;
+		}
+	}
+	out[0..4].copy_from_slice(&count.to_le_bytes());
+	Ok(Response::new(out))
 }
 
 #[tauri::command]
@@ -400,10 +509,11 @@ pub fn move_item(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	let (client, server) = match tile_stack_mut(m, z, from_x, from_y).pop() {
-		Some(it) => it,
-		None => return Ok(Vec::new()),
-	};
+	if stack_at(m, z, from_x, from_y).is_empty() {
+		return Ok(Vec::new());
+	}
+	m.record_begin();
+	let (client, server) = tile_stack_mut(m, z, from_x, from_y).pop().expect("source tile is non-empty");
 	insert_ordered(tile_stack_mut(m, z, to_x, to_y), &place, mats, client, server);
 
 	let mut touched: HashSet<u32> = [chunk_key_of(from_x, from_y), chunk_key_of(to_x, to_y)].into_iter().collect();
@@ -413,6 +523,7 @@ pub fn move_item(
 			touched.extend(auto_after_change(m, mats, &place, otb, z, &tiles, client, server, false));
 		}
 	}
+	m.record_commit(ACTION_MOVE);
 	Ok(touched.into_iter().collect())
 }
 
@@ -436,15 +547,158 @@ pub fn delete_item(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	let removed = tile_stack_mut(m, z, x, y).pop();
+	m.record_begin();
+
+	let stack = tile_stack_mut(m, z, x, y);
+	let before = stack.len();
+	stack.retain(|&(c, s)| matches!(order_class(&place, mats, c, s), GROUND_CLASS | BORDER_CLASS));
+	let removed_any = stack.len() != before;
 
 	let mut touched: HashSet<u32> = [chunk_key_of(x, y)].into_iter().collect();
-	if automagic {
-		if let (Some(mats), Some((client, server))) = (mats, removed) {
+	if automagic && removed_any {
+		if let Some(mats) = mats {
 			let tiles: HashSet<(u16, u16)> = [(x, y)].into_iter().collect();
-			touched.extend(auto_after_change(m, mats, &place, otb, z, &tiles, client, server, false));
+			touched.extend(auto_all(m, mats, &place, otb, z, &tiles));
 		}
 	}
+	m.record_commit(ACTION_ERASE);
+	Ok(touched.into_iter().collect())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn erase_area(
+	map_id: u32,
+	z: u8,
+	x0: u16,
+	y0: u16,
+	x1: u16,
+	y1: u16,
+	automagic: bool,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+) -> Result<Vec<u32>, String> {
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let mats = materials_guard.as_ref();
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+
+	let (min_x, max_x) = (x0.min(x1), x0.max(x1));
+	let (min_y, max_y) = (y0.min(y1), y0.max(y1));
+	let kept = |c: u16, s: u16| matches!(order_class(&place, mats, c, s), GROUND_CLASS | BORDER_CLASS);
+	let in_rect = |x: u16, y: u16| x >= min_x && x <= max_x && y >= min_y && y <= max_y;
+
+	let mut to_erase: Vec<(u16, u16)> = Vec::new();
+	for cy in (min_y as u32 / CHUNK)..=(max_y as u32 / CHUNK) {
+		for cx in (min_x as u32 / CHUNK)..=(max_x as u32 / CHUNK) {
+			let chunk = (cx << 16) | cy;
+			let edited = m.edits.get(&z).and_then(|c| c.get(&chunk));
+			if let Some(&(start, end)) = m.floors.get(&z).and_then(|f| f.get(&chunk)) {
+				for t in start as usize..end as usize {
+					let (x, y) = (m.tile_x[t], m.tile_y[t]);
+					if !in_rect(x, y) {
+						continue;
+					}
+					let pos = (x as u32) << 16 | y as u32;
+					if edited.is_some_and(|e| e.contains_key(&pos)) {
+						continue;
+					}
+					if (m.item_off[t] as usize..m.item_off[t + 1] as usize).any(|j| !kept(m.client_ids[j], m.server_ids[j])) {
+						to_erase.push((x, y));
+					}
+				}
+			}
+			if let Some(e) = edited {
+				for (&pos, stack) in e {
+					let (x, y) = ((pos >> 16) as u16, (pos & 0xFFFF) as u16);
+					if in_rect(x, y) && stack.iter().any(|&(c, s)| !kept(c, s)) {
+						to_erase.push((x, y));
+					}
+				}
+			}
+		}
+	}
+
+	m.record_begin();
+	let mut touched: HashSet<u32> = HashSet::new();
+	let mut affected: HashSet<(u16, u16)> = HashSet::new();
+	for (x, y) in to_erase {
+		let stack = tile_stack_mut(m, z, x, y);
+		let before = stack.len();
+		stack.retain(|&(c, s)| kept(c, s));
+		if stack.len() != before {
+			touched.insert(chunk_key_of(x, y));
+			affected.insert((x, y));
+		}
+	}
+
+	if automagic && !affected.is_empty() {
+		if let Some(mats) = mats {
+			touched.extend(auto_all(m, mats, &place, otb, z, &affected));
+		}
+	}
+	m.record_commit(ACTION_ERASE);
+	Ok(touched.into_iter().collect())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn delete_selection(
+	map_id: u32,
+	z: u8,
+	xs: Vec<u16>,
+	ys: Vec<u16>,
+	all: Vec<bool>,
+	automagic: bool,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+) -> Result<Vec<u32>, String> {
+	if xs.len() != ys.len() || xs.len() != all.len() {
+		return Err("selection arrays length mismatch".into());
+	}
+
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let mats = materials_guard.as_ref();
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.record_begin();
+
+	let mut touched: HashSet<u32> = HashSet::new();
+	let mut affected: HashSet<(u16, u16)> = HashSet::new();
+	for i in 0..xs.len() {
+		let (x, y) = (xs[i], ys[i]);
+		let stack = tile_stack_mut(m, z, x, y);
+		let changed = if all[i] {
+			let had = !stack.is_empty();
+			stack.clear();
+			had
+		} else {
+			stack.pop().is_some()
+		};
+		if changed {
+			touched.insert(chunk_key_of(x, y));
+			affected.insert((x, y));
+		}
+	}
+
+	if automagic && !affected.is_empty() {
+		if let Some(mats) = mats {
+			touched.extend(auto_all(m, mats, &place, otb, z, &affected));
+		}
+	}
+	m.record_commit(ACTION_DELETE);
 	Ok(touched.into_iter().collect())
 }
 
@@ -518,6 +772,58 @@ mod tests {
 		let after = border_count(&m, 50, 50);
 
 		assert!(after > before, "exposing an empty east neighbour adds borders ({before} -> {after})");
+	}
+
+	#[test]
+	fn undo_restores_and_redo_reapplies_a_paint() {
+		let otb = parse_otb(&fs::read(format!("{}/items.otb", DATA)).unwrap()).unwrap();
+		let mats = load_materials();
+		let grass = otb.client_id(4526).unwrap_or(0);
+		let mut place = HashMap::new();
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+
+		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
+
+		m.record_begin();
+		insert_ordered(tile_stack_mut(&mut m, 7, 50, 50), &place, Some(&mats), grass, 4526);
+		borderize(&mut m, &mats, &place, &otb, 7, &[(50, 50)].into_iter().collect(), false);
+		m.record_commit(ACTION_PAINT);
+
+		let painted = stack_at(&m, 7, 50, 50);
+		assert!(painted.len() > 1, "paint placed grass plus its to-none borders");
+
+		m.undo();
+		assert!(stack_at(&m, 7, 50, 50).is_empty(), "undo clears a tile that was empty before");
+
+		m.redo();
+		assert_eq!(stack_at(&m, 7, 50, 50), painted, "redo restores the exact stack");
+	}
+
+	#[test]
+	fn eraser_keeps_ground_and_borders_drops_items() {
+		let otb = parse_otb(&fs::read(format!("{}/items.otb", DATA)).unwrap()).unwrap();
+		let mats = load_materials();
+		let grass = otb.client_id(4526).unwrap_or(0);
+		let mut place = HashMap::new();
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+
+		let border_server = *mats.border_item_ids.iter().next().expect("a border item exists");
+		let border_client = otb.client_id(border_server).unwrap_or(0);
+		let item = (0u16, 1u16);
+
+		assert_eq!(order_class(&place, Some(&mats), grass, 4526), GROUND_CLASS, "grass is ground");
+		assert_eq!(order_class(&place, Some(&mats), border_client, border_server), BORDER_CLASS, "border item");
+		assert_eq!(order_class(&place, Some(&mats), item.0, item.1), NORMAL_CLASS, "synthetic item is normal");
+
+		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
+		let stack = tile_stack_mut(&mut m, 7, 10, 10);
+		*stack = vec![(grass, 4526), (border_client, border_server), item];
+		stack.retain(|&(c, s)| matches!(order_class(&place, Some(&mats), c, s), GROUND_CLASS | BORDER_CLASS));
+
+		let result = stack_at(&m, 7, 10, 10);
+		assert!(result.iter().any(|&(_, s)| s == 4526), "ground stays");
+		assert!(result.iter().any(|&(_, s)| s == border_server), "border stays");
+		assert!(!result.contains(&item), "placed item removed");
 	}
 
 	#[test]

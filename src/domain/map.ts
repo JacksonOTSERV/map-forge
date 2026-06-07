@@ -22,4 +22,10 @@ export interface ChunkTiles {
   serverIds: Uint16Array;
 }
 
+export interface PreviewTile {
+  x: number;
+  y: number;
+  clientIds: Uint16Array;
+}
+
 export type OtbmProgress = (phase: 'parse' | 'decode', value: number) => void;

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { Position } from '~/domain/map';
+import { Position, PreviewTile } from '~/domain/map';
 
 export interface MoveDrag {
   from: Position;
@@ -15,6 +15,8 @@ export interface MapScene {
   ghostRef: React.RefObject<HTMLImageElement>;
   highlightRef: React.RefObject<HTMLDivElement>;
   selectionBoxRef: React.RefObject<HTMLDivElement>;
+  boxGhostRef: React.RefObject<HTMLDivElement>;
+  boxGhostTiles: React.MutableRefObject<PreviewTile[] | null>;
   hoveredTile: React.MutableRefObject<Position | null>;
   lastHoverKey: React.MutableRefObject<string | null>;
   painting: React.MutableRefObject<boolean>;
@@ -32,6 +34,8 @@ export function useMapScene(): MapScene {
     ghostRef: React.useRef<HTMLImageElement>(null),
     highlightRef: React.useRef<HTMLDivElement>(null),
     selectionBoxRef: React.useRef<HTMLDivElement>(null),
+    boxGhostRef: React.useRef<HTMLDivElement>(null),
+    boxGhostTiles: React.useRef<PreviewTile[] | null>(null),
     hoveredTile: React.useRef<Position | null>(null),
     lastHoverKey: React.useRef<string | null>(null),
     painting: React.useRef(false),
