@@ -13,20 +13,25 @@ import {
   DragStartEvent
 } from '@dnd-kit/core';
 
-import { MapMeta } from '~/domain/map';
 import { ToolId } from '~/domain/tools';
+import { cn } from '~/usecase/classNames';
 import Toolbar from '~/components/Toolbar';
 import MapTabs from '~/components/MapTabs';
 import StatusBar from '~/components/StatusBar';
 import MapCanvas from '~/components/MapCanvas';
+import { MapMeta, MapView } from '~/domain/map';
 import Resizer from '~/components/Dock/Resizer';
 import { loadPalette } from '~/adapter/palette';
 import ToolsPanel from '~/components/ToolsPanel';
-import DropSlot from '~/components/Dock/DropSlot';
 import Preferences from '~/components/Preferences';
 import PalettePanel from '~/components/PalettePanel';
+import CornerPanel from '~/components/Dock/CornerPanel';
+import { loadGeneralConfig } from '~/adapter/preferences';
+import Minimap, { MinimapApi } from '~/components/Minimap';
 import { newOtbm, openOtbm, closeMap } from '~/adapter/map';
 import { getSetting, setSetting } from '~/adapter/settings';
+import FloatingPanel from '~/components/Dock/FloatingPanel';
+import PanelDockMenu from '~/components/Dock/PanelDockMenu';
 import DockablePanel from '~/components/Dock/DockablePanel';
 import { ActiveBrush, PaletteData } from '~/domain/palette';
 import { MIN_ZOOM, MAX_ZOOM, snapZoom } from '~/usecase/zoom';
@@ -34,19 +39,42 @@ import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
 import { loadAssets, LoadedAssets, DEFAULT_DATA_DIR } from '~/adapter/assets';
 import { addRecentMap, loadRecentMaps, clearRecentMaps } from '~/adapter/recentMaps';
-import { PANELS, PanelId, DockZone, FloatRect, DockLayout, DEFAULT_FLOAT_WIDTH, DEFAULT_FLOAT_HEIGHT } from '~/domain/dock';
+import {
+  PANELS,
+  PanelId,
+  DockZone,
+  MapCorner,
+  FloatRect,
+  ResizeSide,
+  DropTarget,
+  DockLayout,
+  CORNER_MARGIN,
+  DEFAULT_MAX_STACK,
+  DEFAULT_FLOAT_WIDTH,
+  DEFAULT_MINIMAP_SIZE,
+  DEFAULT_FLOAT_HEIGHT
+} from '~/domain/dock';
 import {
   zoneOf,
+  locate,
   dockAt,
-  indexOf,
-  widthOf,
   floatAt,
-  resizeAt,
+  heightOf,
+  cornerOf,
   isFloating,
+  dockCorner,
+  removePanel,
+  resizeFloat,
   floatRectOf,
+  resizeColumn,
+  resizeHeight,
+  resizeCorner,
+  canStackInto,
+  columnWidthOf,
   loadDockLayout,
   saveDockLayout,
-  defaultDockLayout
+  defaultDockLayout,
+  clampFloatsToBounds
 } from '~/usecase/dock';
 
 import './styles/index.css';
@@ -64,6 +92,39 @@ interface MapTab {
 
 let tabSeq = 0;
 
+interface ColGeom {
+  left: number;
+  right: number;
+  panelY: number[];
+}
+
+interface DragGeom {
+  zones: Record<DockZone, { top: number; h: number; cols: (ColGeom | null)[] }>;
+}
+
+const DropPlaceholder = ({ vertical, size, animate }: { vertical: boolean; size: number; animate: boolean }) => {
+  const [open, setOpen] = React.useState(!animate);
+  React.useEffect(() => {
+    if (!animate) return;
+    const raf = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(raf);
+  }, [animate]);
+  return (
+    <div
+      style={vertical ? { height: open ? size : 0 } : { width: open ? size : 0 }}
+      className={cn(
+        'flex-shrink-0 overflow-hidden rounded-lg bg-primary/15 ring-1 ring-inset ring-primary/40',
+        animate && 'duration-200 ease-out',
+        vertical ? 'w-full' : 'h-full',
+        animate && (vertical ? 'transition-[height]' : 'transition-[width]')
+      )}
+    />
+  );
+};
+
+const sameTarget = (a: DropTarget | null, b: DropTarget | null) =>
+  !!a && !!b && a.zone === b.zone && a.col === b.col && a.row === b.row;
+
 const App = () => {
   const [assets, setAssets] = React.useState<LoadedAssets | null>(null);
   const [palette, setPalette] = React.useState<PaletteData | null>(null);
@@ -75,107 +136,209 @@ const App = () => {
   const [tabs, setTabs] = React.useState<MapTab[]>([]);
   const [recent, setRecent] = React.useState<string[]>([]);
   const [preferencesOpen, setPreferencesOpen] = React.useState(false);
+  const [minimapOpen, setMinimapOpen] = React.useState(false);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState<{ value: number; label: string } | null>(null);
   const [hover, setHover] = React.useState<HoverInfo | null>(null);
   const [selectedItem, setSelectedItem] = React.useState<HoverItem | null>(null);
   const [layout, setLayout] = React.useState<DockLayout>(defaultDockLayout);
+  const [maxStack, setMaxStack] = React.useState(DEFAULT_MAX_STACK);
   const [dragging, setDragging] = React.useState<PanelId | null>(null);
+  const [resizing, setResizing] = React.useState(false);
   const [dragSize, setDragSize] = React.useState<{ width: number; height: number } | null>(null);
-  const [dropTarget, setDropTarget] = React.useState<{ zone: DockZone; index: number } | null>(null);
-  const [dragSettled, setDragSettled] = React.useState(false);
+  const [dropTarget, setDropTarget] = React.useState<DropTarget | null>(null);
 
   const workspaceRef = React.useRef<HTMLDivElement>(null);
+  const mapAreaRef = React.useRef<HTMLDivElement>(null);
+  const mapViewRef = React.useRef<MapView | null>(null);
+  const minimapApiRef = React.useRef<MinimapApi | null>(null);
+  const mapCenterRef = React.useRef<((x: number, y: number) => void) | null>(null);
+  const dragGeom = React.useRef<DragGeom | null>(null);
+  const origTarget = React.useRef<DropTarget | null>(null);
   const dragOrigin = React.useRef<{ left: number; top: number }>({ left: 0, top: 0 });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const active = tabs.find((t) => t.id === activeId) ?? null;
 
-  const GAP = 6;
+  const minimapColors = React.useMemo(() => {
+    if (!assets) return null;
+    let max = 0;
+    for (const id of assets.items.keys()) if (id > max) max = id;
+    const arr = new Array<number>(max + 1).fill(0);
+    for (const [id, thing] of assets.items) if (thing.miniMap && thing.miniMapColor) arr[id] = thing.miniMapColor & 0xff;
+    return arr;
+  }, [assets]);
 
   function handleDragStart(event: DragStartEvent) {
     const id = event.active.id as PanelId;
     const el = document.querySelector(`[data-panel-id="${id}"]`);
     const rect = el?.getBoundingClientRect();
     dragOrigin.current = { left: rect?.left ?? 0, top: rect?.top ?? 0 };
+    dragGeom.current = null;
+    const loc = locate(layout, id);
+    const orig = loc ? { zone: loc.zone, col: loc.col, row: layout[loc.zone][loc.col].length > 1 ? loc.row : null } : null;
+    origTarget.current = orig;
     setDragSize(rect ? { width: rect.width, height: rect.height } : null);
     setDragging(id);
-    const zone = zoneOf(layout, id);
-    setDropTarget(zone ? { zone, index: indexOf(layout, id) } : null);
+    setDropTarget(orig);
   }
 
   function handleDragMove(event: DragMoveEvent) {
-    setDropTarget(findDropTarget(layout, event.active.id as PanelId, event.delta));
+    setDropTarget(findDropTarget(event.active.id as PanelId, event.delta));
   }
 
   function handleDragEnd(event: DragEndEvent) {
     const id = event.active.id as PanelId;
-    const target = findDropTarget(layout, id, event.delta);
+    const target = findDropTarget(id, event.delta);
+    dragGeom.current = null;
     setDragging(null);
     setDropTarget(null);
     setLayout((prev) => {
-      const next = target ? dockAt(prev, id, target.zone, target.index) : floatAt(prev, id, dropRect(prev, id, event.delta));
+      const next = target ? dockAt(prev, id, target, maxStack) : floatAt(prev, id, dropRect(prev, id, event.delta));
       saveDockLayout(next);
       return next;
     });
   }
 
-  function findDropTarget(lay: DockLayout, dragId: PanelId, delta: { x: number; y: number }) {
+  function buildDragGeom(lay: DockLayout): DragGeom {
+    const ws = workspaceRef.current!.getBoundingClientRect();
+    const zones = {} as DragGeom['zones'];
+    for (const zone of ['left', 'right'] as DockZone[]) {
+      const zr = document.querySelector(`[data-dock-zone="${zone}"]`)?.getBoundingClientRect() ?? null;
+      const cols = lay[zone].map((col, ci) => {
+        const cr = document.querySelector(`[data-dock-col="${zone}:${ci}"]`)?.getBoundingClientRect();
+        if (!cr) return null;
+        const pr = col
+          .map((id) => document.querySelector(`[data-panel-id="${id}"]`)?.getBoundingClientRect() ?? null)
+          .filter((r): r is DOMRect => !!r);
+        const panelY = pr.length ? [pr[0].top, ...pr.map((r) => r.bottom)] : [cr.top, cr.bottom];
+        return { left: cr.left, right: cr.right, panelY };
+      });
+      zones[zone] = { top: zr ? zr.top : ws.top + 6, h: (zr ? zr.height : ws.height - 12) || ws.height - 12, cols };
+    }
+    return { zones };
+  }
+
+  function findDropTarget(dragId: PanelId, delta: { x: number; y: number }): DropTarget | null {
     const ws = workspaceRef.current?.getBoundingClientRect();
     if (!ws) return null;
-    const dragW = dragSize?.width ?? DEFAULT_FLOAT_WIDTH;
-    const center = dragOrigin.current.left + delta.x + dragW / 2;
-    const SNAP = 110;
+    const lay = removePanel(layout, dragId);
+    if (!dragGeom.current) dragGeom.current = buildDragGeom(lay);
+    const geom = dragGeom.current;
+    const size = dragSize ?? { width: DEFAULT_FLOAT_WIDTH, height: DEFAULT_FLOAT_HEIGHT };
+    const cx = dragOrigin.current.left + delta.x + size.width / 2;
+    const cy = dragOrigin.current.top + delta.y + size.height / 2;
+    const SNAP = 260;
 
-    const itemWidth = (id: PanelId) => {
-      const r = document.querySelector(`[data-panel-id="${id}"]`)?.getBoundingClientRect();
-      return r ? r.width : widthOf(lay, id);
+    let best: { t: DropTarget; d: number } | null = null;
+    const add = (t: DropTarget, px: number, py: number) => {
+      const d = Math.hypot(px - cx, py - cy);
+      if (d < SNAP && (!best || d < best.d)) best = { t, d };
     };
 
-    const leftIds = lay.left.filter((id) => id !== dragId);
-    const rightIds = lay.right.filter((id) => id !== dragId);
-    const sumW = (ids: PanelId[]) => ids.reduce((s, id) => s + itemWidth(id), 0);
-    const contentWidth = ws.width - GAP * 2;
-    const nonMap = sumW(leftIds) + sumW(rightIds) + leftIds.length * GAP + rightIds.length * GAP;
-    const mapW = Math.max(120, contentWidth - nonMap);
+    for (const zone of ['left', 'right'] as DockZone[]) {
+      const z = geom.zones[zone];
+      const cols = lay[zone];
+      const midY = z.top + z.h / 2;
 
-    type Slot = { zone: DockZone; index: number; x: number };
-    const slots: Slot[] = [];
-    let x = ws.left + GAP;
-    for (let i = 0; i <= leftIds.length; i++) {
-      const base = i === 0 ? 0 : GAP;
-      slots.push({ zone: 'left', index: i, x: x + base / 2 });
-      x += base;
-      if (i < leftIds.length) x += itemWidth(leftIds[i]);
-    }
-    x += mapW;
-    for (let i = 0; i <= rightIds.length; i++) {
-      const base = i === rightIds.length ? 0 : GAP;
-      slots.push({ zone: 'right', index: i, x: x + base / 2 });
-      x += base;
-      if (i < rightIds.length) x += itemWidth(rightIds[i]);
-    }
+      if (cols.length === 0) {
+        add({ zone, col: 0, row: null }, zone === 'left' ? ws.left + size.width / 2 : ws.right - size.width / 2, midY);
+        continue;
+      }
 
-    let best: Slot | null = null;
-    let bestDist = SNAP;
-    for (const slot of slots) {
-      const d = Math.abs(center - slot.x);
-      if (d < bestDist) {
-        bestDist = d;
-        best = slot;
+      for (let ci = 0; ci <= cols.length; ci++) {
+        const before = ci > 0 ? z.cols[ci - 1] : null;
+        const after = ci < cols.length ? z.cols[ci] : null;
+        let gx: number;
+        if (ci === 0) gx = after ? after.left : ws.left;
+        else if (ci === cols.length) gx = before ? before.right : ws.right;
+        else gx = before && after ? (before.right + after.left) / 2 : (after?.left ?? before?.right ?? ws.left);
+        add({ zone, col: ci, row: null }, gx, midY);
+      }
+
+      for (let ci = 0; ci < cols.length; ci++) {
+        const cg = z.cols[ci];
+        if (!cg || !canStackInto(cols[ci], dragId, maxStack)) continue;
+        const colMidX = (cg.left + cg.right) / 2;
+        for (let ri = 0; ri < cg.panelY.length; ri++) add({ zone, col: ci, row: ri }, colMidX, cg.panelY[ri]);
       }
     }
-    return best ? { zone: best.zone, index: best.index } : null;
+
+    return best ? best.t : null;
   }
 
-  function resizeDockPanel(id: PanelId, dx: number) {
-    const dir = zoneOf(layout, id) === 'left' ? 1 : -1;
+  function resizeColumnWidth(zone: DockZone, ci: number, dx: number) {
+    const dir = zone === 'left' ? 1 : -1;
     setLayout((prev) => {
-      const next = resizeAt(prev, id, widthOf(prev, id) + dir * dx);
+      const next = resizeColumn(prev, zone, ci, columnWidthOf(prev, zone, ci) + dir * dx);
       saveDockLayout(next);
       return next;
     });
+  }
+
+  function resizePanelHeight(id: PanelId, dy: number) {
+    setLayout((prev) => {
+      const next = resizeHeight(prev, id, heightOf(prev, id) + dy);
+      saveDockLayout(next);
+      return next;
+    });
+  }
+
+  function resizeFloatPanel(id: PanelId, side: ResizeSide, dx: number, dy: number) {
+    const ws = workspaceRef.current?.getBoundingClientRect();
+    const bounds = ws ? { width: ws.width, height: ws.height } : undefined;
+    setLayout((prev) => {
+      const next = resizeFloat(prev, id, side, dx, dy, bounds);
+      saveDockLayout(next);
+      return next;
+    });
+  }
+
+  function resetLayout() {
+    const next = floatAt(defaultDockLayout(), 'minimap', defaultMinimapRect());
+    saveDockLayout(next);
+    setLayout(next);
+  }
+
+  function dockToCorner(id: PanelId, corner: MapCorner) {
+    setLayout((prev) => {
+      const next = dockCorner(prev, id, corner);
+      saveDockLayout(next);
+      return next;
+    });
+  }
+
+  function floatPanel(id: PanelId) {
+    setLayout((prev) => {
+      const ws = workspaceRef.current?.getBoundingClientRect();
+      const w = prev.width[id] ?? DEFAULT_MINIMAP_SIZE;
+      const h = prev.height[id] ?? DEFAULT_MINIMAP_SIZE;
+      const rect = floatRectOf(prev, id) ?? {
+        width: w,
+        height: h,
+        x: ws ? Math.max(8, ws.width - w - 16) : 480,
+        y: ws ? Math.max(8, ws.height - h - 16) : 360
+      };
+      const next = floatAt(prev, id, rect);
+      saveDockLayout(next);
+      return next;
+    });
+  }
+
+  function resizeCornerPanel(id: PanelId, corner: MapCorner, side: ResizeSide, dx: number, dy: number) {
+    const area = mapAreaRef.current?.getBoundingClientRect();
+    const bounds = area ? { width: area.width - 2 * CORNER_MARGIN, height: area.height - 2 * CORNER_MARGIN } : undefined;
+    setLayout((prev) => {
+      const next = resizeCorner(prev, id, corner, side, dx, dy, bounds);
+      saveDockLayout(next);
+      return next;
+    });
+  }
+
+  function panelMenu(id: PanelId) {
+    if (!PANELS[id].cornerDockable) return null;
+    return <PanelDockMenu corner={cornerOf(layout, id)} onFloat={() => floatPanel(id)} onPick={(c) => dockToCorner(id, c)} />;
   }
 
   function dropRect(layout: DockLayout, id: PanelId, delta: { x: number; y: number }): FloatRect {
@@ -190,12 +353,54 @@ const App = () => {
     return { x, y, width, height };
   }
 
+  function defaultMinimapRect(): FloatRect {
+    const ws = workspaceRef.current?.getBoundingClientRect();
+    const size = DEFAULT_MINIMAP_SIZE;
+    const x = ws ? Math.max(8, ws.width - size - 16) : 480;
+    const y = ws ? Math.max(8, ws.height - size - 16) : 360;
+    return { x, y, width: size, height: size };
+  }
+
   React.useEffect(() => {
-    void loadDockLayout().then(setLayout);
+    void (async () => {
+      const loaded = await loadDockLayout();
+      const reset = await getSetting('minimapReset', false);
+      const placed = !!zoneOf(loaded, 'minimap') || isFloating(loaded, 'minimap');
+      if (reset && placed) {
+        setLayout(loaded);
+        return;
+      }
+      const next = floatAt(loaded, 'minimap', defaultMinimapRect());
+      saveDockLayout(next);
+      if (!reset) void setSetting('minimapReset', true);
+      setLayout(next);
+    })();
   }, []);
 
   React.useEffect(() => {
     void getSetting('automagic', true).then(setAutomagic);
+  }, []);
+
+  React.useEffect(() => {
+    void getSetting('minimapOpen', false).then(setMinimapOpen);
+  }, []);
+
+  React.useEffect(() => {
+    void loadGeneralConfig().then((g) => setMaxStack(g.maxStack));
+  }, []);
+
+  React.useEffect(() => {
+    const onResize = () => {
+      const ws = workspaceRef.current?.getBoundingClientRect();
+      if (!ws) return;
+      setLayout((prev) => {
+        const next = clampFloatsToBounds(prev, { width: ws.width, height: ws.height });
+        if (next !== prev) saveDockLayout(next);
+        return next;
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   React.useEffect(() => {
@@ -212,6 +417,18 @@ const App = () => {
       void setSetting('automagic', next);
       return next;
     });
+
+  const toggleMinimap = () =>
+    setMinimapOpen((v) => {
+      const next = !v;
+      void setSetting('minimapOpen', next);
+      return next;
+    });
+
+  const closeMinimap = () => {
+    setMinimapOpen(false);
+    void setSetting('minimapOpen', false);
+  };
 
   React.useEffect(() => {
     setSelectedItem(null);
@@ -240,13 +457,18 @@ const App = () => {
   }, [assets, busy, tabs, activeId]);
 
   React.useEffect(() => {
-    if (!dragging) {
-      setDragSettled(false);
-      return;
+    function onKey(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        toggleMinimap();
+      }
     }
-    const raf = requestAnimationFrame(() => setDragSettled(true));
-    return () => cancelAnimationFrame(raf);
-  }, [dragging]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const updateActive = (patch: Partial<MapTab>) =>
     setTabs((prev) => prev.map((t) => (t.id === activeId ? { ...t, ...patch } : t)));
@@ -343,13 +565,16 @@ const App = () => {
     }
   }
 
-  const isRenderable = (id: PanelId) => id !== dragging && (id === 'tools' || !!(assets && palette));
+  const isRenderable = (id: PanelId) => {
+    if (id === dragging) return false;
+    if (id === 'minimap') return minimapOpen && !!assets && !!active && !!minimapColors;
+    return id === 'tools' || !!(assets && palette);
+  };
   const isStrip = (id: PanelId) => PANELS[id].variant === 'strip';
-  const leftIds = layout.left.filter(isRenderable);
-  const rightIds = layout.right.filter(isRenderable);
-  const floating = (Object.keys(PANELS) as PanelId[]).filter((id) => isFloating(layout, id) && isRenderable(id));
-
-  const dragW = dragSize?.width ?? 0;
+  const guard = !!dragging || resizing;
+  const dragLayout = dragging ? removePanel(layout, dragging) : layout;
+  const floating = (Object.keys(PANELS) as PanelId[]).filter((id) => isFloating(dragLayout, id) && isRenderable(id));
+  const cornered = (Object.keys(PANELS) as PanelId[]).filter((id) => !!cornerOf(dragLayout, id) && isRenderable(id));
 
   function selectBrush(brush: ActiveBrush | null) {
     setActiveBrush(brush);
@@ -381,45 +606,116 @@ const App = () => {
         />
       );
     }
+    if (id === 'minimap' && assets && active && minimapColors) {
+      return (
+        <Minimap
+          key={active.id}
+          dragHandle={handle}
+          viewRef={mapViewRef}
+          mapId={active.map.id}
+          floorZ={active.floorZ}
+          colors={minimapColors}
+          apiRef={minimapApiRef}
+          onClose={closeMinimap}
+          centerRef={mapCenterRef}
+          headerMenu={panelMenu('minimap')}
+        />
+      );
+    }
     return null;
   }
 
-  function renderItem(zone: DockZone, id: PanelId) {
-    if (isStrip(id)) {
-      return (
-        <DockablePanel key={id} meta={PANELS[id]} className="h-full flex-shrink-0">
+  function renderStackItem(id: PanelId, ri: number, count: number) {
+    const last = ri === count - 1;
+    const strip = isStrip(id);
+    return (
+      <div
+        key={id}
+        className={cn('relative min-h-0', last ? 'flex-1' : 'flex-shrink-0')}
+        style={last || strip ? undefined : { height: heightOf(dragLayout, id) }}
+      >
+        <DockablePanel guarded={guard} meta={PANELS[id]} className="h-full">
           {(handle) => renderPanel(id, handle)}
         </DockablePanel>
-      );
+        {!last && (
+          <Resizer
+            gap
+            dir="y"
+            side="bottom"
+            onResizeEnd={() => setResizing(false)}
+            onResizeStart={() => setResizing(true)}
+            onResize={({ dy }) => resizePanelHeight(id, dy)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  function renderColumn(zone: DockZone, ci: number, panels: PanelId[], rowPh: number, animate: boolean) {
+    const strip = panels.length === 1 && isStrip(panels[0]);
+    const fullH = dragSize?.height ?? DEFAULT_FLOAT_HEIGHT;
+    const items: React.ReactNode[] = [];
+    for (let ri = 0; ri <= panels.length; ri++) {
+      if (ri === rowPh) {
+        items.push(
+          <DropPlaceholder vertical animate={animate} key={`ph-${zone}-${ci}`} size={animate ? Math.min(fullH, 200) : fullH} />
+        );
+      }
+      if (ri < panels.length) items.push(renderStackItem(panels[ri], ri, panels.length));
     }
     return (
-      <div key={id} style={{ width: widthOf(layout, id) }} className="relative h-full min-h-0 flex-shrink-0">
-        <DockablePanel meta={PANELS[id]} className="h-full">
-          {(handle) => renderPanel(id, handle)}
-        </DockablePanel>
-        <Resizer side={zone === 'left' ? 'right' : 'left'} onResize={(dx) => resizeDockPanel(id, dx)} />
+      <div
+        key={`col-${zone}-${ci}`}
+        data-dock-col={`${zone}:${ci}`}
+        className="relative flex h-full min-h-0 flex-shrink-0 flex-col gap-1.5"
+        style={strip ? undefined : { width: columnWidthOf(dragLayout, zone, ci) }}
+      >
+        {items}
+        {!strip && (
+          <Resizer
+            gap
+            dir="x"
+            onResizeEnd={() => setResizing(false)}
+            onResizeStart={() => setResizing(true)}
+            side={zone === 'left' ? 'right' : 'left'}
+            onResize={({ dx }) => resizeColumnWidth(zone, ci, dx)}
+          />
+        )}
       </div>
     );
   }
 
   function renderSide(zone: DockZone) {
-    const ids = zone === 'left' ? leftIds : rightIds;
-    const cells: React.ReactNode[] = [];
-    for (let i = 0; i <= ids.length; i++) {
-      const edge = zone === 'left' ? i === 0 : i === ids.length;
-      cells.push(
-        <DropSlot
-          width={dragW}
-          base={edge ? 0 : GAP}
-          key={`slot-${zone}-${i}`}
-          animate={!!dragging && dragSettled}
-          align={edge ? (zone === 'left' ? 'start' : 'end') : 'center'}
-          active={!!dragging && dropTarget?.zone === zone && dropTarget.index === i}
-        />
-      );
-      if (i < ids.length) cells.push(renderItem(zone, ids[i]));
+    const cols = dragLayout[zone];
+    const dt = dropTarget;
+    const animate = !sameTarget(dt, origTarget.current);
+    const newCol = dt && dt.zone === zone && dt.row === null ? dt.col : -1;
+    const children: React.ReactNode[] = [];
+    for (let ci = 0; ci <= cols.length; ci++) {
+      if (ci === newCol) {
+        children.push(
+          <DropPlaceholder
+            vertical={false}
+            animate={animate}
+            key={`phc-${zone}-${ci}`}
+            size={dragSize?.width ?? DEFAULT_FLOAT_WIDTH}
+          />
+        );
+      }
+      if (ci < cols.length) {
+        const panels = cols[ci].filter(isRenderable);
+        if (panels.length > 0) {
+          const rowPh = dt && dt.zone === zone && dt.col === ci && dt.row !== null ? dt.row : -1;
+          children.push(renderColumn(zone, ci, panels, rowPh, animate));
+        }
+      }
     }
-    return cells;
+    if (children.length === 0) return null;
+    return (
+      <div data-dock-zone={zone} className="flex h-full flex-shrink-0 gap-1.5">
+        {children}
+      </div>
+    );
   }
 
   return (
@@ -436,7 +732,12 @@ const App = () => {
         onOpenPreferences={() => setPreferencesOpen(true)}
       />
 
-      <Preferences open={preferencesOpen} onOpenChange={setPreferencesOpen} />
+      <Preferences
+        open={preferencesOpen}
+        onResetLayout={resetLayout}
+        onOpenChange={setPreferencesOpen}
+        onSaved={() => void loadGeneralConfig().then((g) => setMaxStack(g.maxStack))}
+      />
 
       <DndContext
         sensors={sensors}
@@ -445,7 +746,7 @@ const App = () => {
         onDragStart={handleDragStart}
         collisionDetection={pointerWithin}
       >
-        <div ref={workspaceRef} className="relative flex min-h-0 flex-1 overflow-hidden bg-toolbar-bg p-1.5">
+        <div ref={workspaceRef} className="relative flex min-h-0 flex-1 gap-1.5 overflow-hidden bg-toolbar-bg p-1.5">
           {renderSide('left')}
 
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg bg-card shadow-island">
@@ -458,7 +759,7 @@ const App = () => {
               disabled={busy || !assets}
             />
 
-            <div className="relative min-h-0 flex-1">
+            <div ref={mapAreaRef} className="relative min-h-0 flex-1">
               {active && assets ? (
                 <MapCanvas
                   key={active.id}
@@ -468,11 +769,13 @@ const App = () => {
                   maxZoom={MAX_ZOOM}
                   onHover={setHover}
                   items={assets.items}
+                  viewRef={mapViewRef}
                   automagic={automagic}
                   floorZ={active.floorZ}
                   onZoomChange={setZoom}
                   activeTool={activeTool}
                   sprPath={assets.sprPath}
+                  centerRef={mapCenterRef}
                   activeBrush={activeBrush}
                   onFloorChange={setFloorZ}
                   onSelect={setSelectedItem}
@@ -480,6 +783,7 @@ const App = () => {
                   onToolChange={setActiveTool}
                   itemNames={assets.itemNames}
                   transparency={assets.transparency}
+                  onEdit={(z) => minimapApiRef.current?.markDirty(z)}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
@@ -499,6 +803,26 @@ const App = () => {
                   <div className="font-mono text-xs text-muted-foreground">{Math.round(progress.value * 100)}%</div>
                 </div>
               )}
+
+              {cornered.map((id) => {
+                const corner = cornerOf(layout, id);
+                if (!corner) return null;
+                return (
+                  <CornerPanel
+                    key={id}
+                    guarded={guard}
+                    corner={corner}
+                    meta={PANELS[id]}
+                    onResizeEnd={() => setResizing(false)}
+                    onResizeStart={() => setResizing(true)}
+                    width={layout.width[id] ?? DEFAULT_MINIMAP_SIZE}
+                    height={layout.height[id] ?? DEFAULT_MINIMAP_SIZE}
+                    onResize={(side, dx, dy) => resizeCornerPanel(id, corner, side, dx, dy)}
+                  >
+                    {(handle) => renderPanel(id, handle)}
+                  </CornerPanel>
+                );
+              })}
             </div>
           </div>
 
@@ -508,22 +832,27 @@ const App = () => {
             const rect = floatRectOf(layout, id);
             if (!rect) return null;
             return (
-              <div
+              <FloatingPanel
                 key={id}
-                className="absolute z-20"
-                style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+                rect={rect}
+                guarded={guard}
+                meta={PANELS[id]}
+                onResizeEnd={() => setResizing(false)}
+                onResizeStart={() => setResizing(true)}
+                onResize={(side, dx, dy) => resizeFloatPanel(id, side, dx, dy)}
               >
-                <DockablePanel meta={PANELS[id]} className="h-full">
-                  {(handle) => renderPanel(id, handle)}
-                </DockablePanel>
-              </div>
+                {(handle) => renderPanel(id, handle)}
+              </FloatingPanel>
             );
           })}
         </div>
 
         <DragOverlay dropAnimation={null}>
           {dragging ? (
-            <div className="cursor-grabbing" style={{ width: dragSize?.width, height: dragSize?.height }}>
+            <div
+              style={{ width: dragSize?.width, height: dragSize?.height }}
+              className="cursor-grabbing rounded-lg shadow-[0_10px_40px_-5px_rgba(0,0,0,0.65)] ring-1 ring-black/40"
+            >
               {renderPanel(dragging)}
             </div>
           ) : null}

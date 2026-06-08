@@ -55,6 +55,15 @@ const MapCanvas = (props: MapCanvasProps) => {
   const interaction = useMapInteraction({ canvasRef, camera, inputs, atlas, tiles, meshes, selection, scene });
 
   React.useEffect(() => {
+    const ref = props.centerRef;
+    if (!ref) return;
+    ref.current = (x, y) => camera.centerOn({ x, y, z: inputs.current.floorZ });
+    return () => {
+      ref.current = null;
+    };
+  }, []);
+
+  React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let renderer: GLRenderer | null = null;

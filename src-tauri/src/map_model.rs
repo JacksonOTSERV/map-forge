@@ -226,6 +226,90 @@ pub(crate) fn serialize_chunks(m: &MapModel, z: u8, keys: &[u32]) -> Vec<u8> {
 	out
 }
 
+pub(crate) fn serialize_minimap(m: &MapModel, z: u8, colors: &[u8]) -> Vec<u8> {
+	let pick = |clients: &[u16]| -> u8 {
+		for &c in clients.iter().rev() {
+			let ci = c as usize;
+			if ci < colors.len() && colors[ci] != 0 {
+				return colors[ci];
+			}
+		}
+		0
+	};
+
+	let mut tiles: Vec<(u16, u16, u8)> = Vec::new();
+	let efloor = m.edits.get(&z);
+	if let Some(floor) = m.floors.get(&z) {
+		for (&k, &(start, end)) in floor {
+			let edits_chunk = efloor.and_then(|c| c.get(&k));
+			for t in start as usize..end as usize {
+				let x = m.tile_x[t];
+				let y = m.tile_y[t];
+				let pos = (x as u32) << 16 | y as u32;
+				if edits_chunk.is_some_and(|c| c.contains_key(&pos)) {
+					continue;
+				}
+				let s = m.item_off[t] as usize;
+				let e = m.item_off[t + 1] as usize;
+				let col = pick(&m.client_ids[s..e]);
+				if col != 0 {
+					tiles.push((x, y, col));
+				}
+			}
+		}
+	}
+	if let Some(chunks) = efloor {
+		for chunk in chunks.values() {
+			for (&pos, stack) in chunk {
+				if stack.is_empty() {
+					continue;
+				}
+				let clients: Vec<u16> = stack.iter().map(|&(c, _)| c).collect();
+				let col = pick(&clients);
+				if col != 0 {
+					tiles.push(((pos >> 16) as u16, (pos & 0xFFFF) as u16, col));
+				}
+			}
+		}
+	}
+
+	let mut out = Vec::new();
+	if tiles.is_empty() {
+		push_u16(&mut out, 0);
+		push_u16(&mut out, 0);
+		push_u16(&mut out, 0);
+		push_u16(&mut out, 0);
+		return out;
+	}
+
+	let mut min_x = u16::MAX;
+	let mut min_y = u16::MAX;
+	let mut max_x = 0u16;
+	let mut max_y = 0u16;
+	for &(x, y, _) in &tiles {
+		min_x = min_x.min(x);
+		min_y = min_y.min(y);
+		max_x = max_x.max(x);
+		max_y = max_y.max(y);
+	}
+	let w = (max_x - min_x + 1) as usize;
+	let h = (max_y - min_y + 1) as usize;
+	let mut grid = vec![0u8; w * h];
+	for &(x, y, col) in &tiles {
+		let gx = (x - min_x) as usize;
+		let gy = (y - min_y) as usize;
+		grid[gy * w + gx] = col;
+	}
+
+	out.reserve(8 + grid.len());
+	push_u16(&mut out, min_x);
+	push_u16(&mut out, min_y);
+	push_u16(&mut out, w as u16);
+	push_u16(&mut out, h as u16);
+	out.extend_from_slice(&grid);
+	out
+}
+
 pub(crate) fn base_tile_items(m: &MapModel, z: u8, chunk_key: u32, x: u16, y: u16) -> Vec<(u16, u16)> {
 	if let Some(&(start, end)) = m.floors.get(&z).and_then(|f| f.get(&chunk_key)) {
 		for t in start as usize..end as usize {
@@ -398,6 +482,13 @@ pub fn get_map_chunks(map_id: u32, z: u8, keys: Vec<u32>, map_state: tauri::Stat
 	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let model = guard.maps.get(&map_id).ok_or("map not loaded - call open_otbm first")?;
 	Ok(Response::new(serialize_chunks(model, z, &keys)))
+}
+
+#[tauri::command]
+pub fn get_minimap(map_id: u32, z: u8, colors: Vec<u8>, map_state: tauri::State<MapState>) -> Result<Response, String> {
+	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let model = guard.maps.get(&map_id).ok_or("map not loaded - call open_otbm first")?;
+	Ok(Response::new(serialize_minimap(model, z, &colors)))
 }
 
 #[tauri::command]

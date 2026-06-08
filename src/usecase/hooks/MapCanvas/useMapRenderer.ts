@@ -329,6 +329,8 @@ export function useMapRenderer(deps: RendererDeps) {
     }
 
     const { x: camX, y: camY } = camera.ref.current;
+    const viewRef = inputs.current.viewRef;
+    if (viewRef) viewRef.current = { camX, camY, zoom, vw, vh };
     renderer.beginFrame(bufW, bufH, camX, camY, scale, 1);
 
     const { minX, minY, maxX, maxY } = inputs.current.map.bounds;

@@ -1,7 +1,9 @@
+import React from 'react';
+
 import { ToolId } from '~/domain/tools';
 import { ThingType } from '~/domain/tibia';
 import { ActiveBrush } from '~/domain/palette';
-import { MapMeta, Position } from '~/domain/map';
+import { MapView, MapMeta, Position } from '~/domain/map';
 
 export interface Camera {
   x: number;
@@ -65,4 +67,7 @@ export interface MapCanvasProps {
   activeBrush: ActiveBrush | null;
   activeTool: ToolId;
   automagic: boolean;
+  onEdit?: (z: number) => void;
+  viewRef?: React.MutableRefObject<MapView | null>;
+  centerRef?: React.MutableRefObject<((x: number, y: number) => void) | null>;
 }

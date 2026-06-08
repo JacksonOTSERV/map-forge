@@ -28,4 +28,20 @@ export interface PreviewTile {
   clientIds: Uint16Array;
 }
 
+export interface MinimapImage {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+  data: Uint8Array;
+}
+
+export interface MapView {
+  camX: number;
+  camY: number;
+  zoom: number;
+  vw: number;
+  vh: number;
+}
+
 export type OtbmProgress = (phase: 'parse' | 'decode', value: number) => void;

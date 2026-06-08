@@ -45,6 +45,7 @@ export function useMapInteraction(deps: InteractionDeps) {
   const [gotoForm, setGotoForm] = React.useState<Position | null>(null);
 
   const tileAt = (e: React.MouseEvent) => camera.tileUnderCursor(e, inputs.current.floorZ);
+  const notifyEdit = (z: number) => inputs.current.onEdit?.(z);
 
   const previewKey = React.useRef<string | null>(null);
   const previewSeq = React.useRef(0);
@@ -68,6 +69,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       .then((touched) => {
         if (touched.length === 0) tiles.queueRefetch(pos.x, pos.y, pos.z);
         for (const key of touched) tiles.queueRefetch((key >>> 16) * CHUNK, (key & 0xffff) * CHUNK, pos.z);
+        notifyEdit(pos.z);
       })
       .catch((err) => console.error('Failed to paint tile', err));
   }
@@ -151,6 +153,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       .then((touched) => {
         if (touched.length === 0) tiles.queueRefetch(pos.x, pos.y, pos.z);
         for (const key of touched) tiles.queueRefetch((key >>> 16) * CHUNK, (key & 0xffff) * CHUNK, pos.z);
+        notifyEdit(pos.z);
       })
       .catch((err) => console.error('Failed to erase tile', err));
   }
@@ -162,6 +165,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     const res = await fetchMapChunks(inputs.current.map.id, z, [packChunkKey(cx, cy)]);
     tiles.store(key, res.get(`${cx},${cy}`) ?? null, scene.frameTick.current);
     meshes.forget(key);
+    notifyEdit(z);
   }
 
   async function refetchKeysNow(keys: number[], z: number) {
@@ -173,6 +177,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       tiles.store(`${z},${cx},${cy}`, res.get(`${cx},${cy}`) ?? null, scene.frameTick.current);
       meshes.forget(`${z},${cx},${cy}`);
     }
+    notifyEdit(z);
   }
 
   function hoverAt(pos: Position): HoverInfo {

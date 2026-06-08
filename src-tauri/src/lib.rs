@@ -29,7 +29,7 @@ use commands::{
 };
 use map_edit::{delete_item, delete_selection, erase_area, move_item, paint_tiles, preview_paint};
 use map_load::open_otbm;
-use map_model::{close_map, get_map_chunks, new_otbm, redo_edit, undo_edit, MapStore};
+use map_model::{close_map, get_map_chunks, get_minimap, new_otbm, redo_edit, undo_edit, MapStore};
 
 pub(crate) type OtbState = Arc<Mutex<Option<OtbItems>>>;
 pub(crate) type MaterialsState = Arc<Mutex<Option<Materials>>>;
@@ -83,6 +83,7 @@ pub fn run() {
 			undo_edit,
 			redo_edit,
 			get_map_chunks,
+			get_minimap,
 			set_window_acrylic,
 			read_settings,
 			write_settings
