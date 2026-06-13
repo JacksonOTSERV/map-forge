@@ -1,6 +1,7 @@
 import { DEFAULT_MAX_STACK } from '~/domain/dock';
 import { getSetting, setSetting } from '~/adapter/settings';
 import { DEFAULT_VERSION, DEFAULT_DATA_DIR } from '~/adapter/assets';
+import { DEFAULT_COPY_POSITION_FORMAT } from '~/usecase/positionFormat';
 
 const KEY = 'clientConfig';
 const GENERAL_KEY = 'generalConfig';
@@ -32,10 +33,12 @@ export async function saveClientConfig(config: ClientConfig): Promise<void> {
 
 export interface GeneralConfig {
   maxStack: number;
+  copyPositionFormat: string;
 }
 
 export const defaultGeneralConfig: GeneralConfig = {
-  maxStack: DEFAULT_MAX_STACK
+  maxStack: DEFAULT_MAX_STACK,
+  copyPositionFormat: DEFAULT_COPY_POSITION_FORMAT
 };
 
 export async function loadGeneralConfig(): Promise<GeneralConfig> {

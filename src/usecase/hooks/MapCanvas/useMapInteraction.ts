@@ -2,6 +2,7 @@ import React from 'react';
 
 import { Position } from '~/domain/map';
 import { buildItemPreview } from '~/usecase/itemPreview';
+import { formatPosition } from '~/usecase/positionFormat';
 import { CHUNK, MOVE_THRESHOLD_SQ } from '~/components/MapCanvas/constants';
 import { HoverInfo, HoverItem, MapCanvasProps, ContextMenuState } from '~/components/MapCanvas/types';
 import {
@@ -13,7 +14,9 @@ import {
   paintTiles,
   previewPaint,
   packChunkKey,
+  copySelection,
   fetchMapChunks,
+  pasteSelection,
   deleteSelection
 } from '~/adapter/map';
 
@@ -43,6 +46,7 @@ export function useMapInteraction(deps: InteractionDeps) {
   const [boxing, setBoxing] = React.useState(false);
   const [menu, setMenu] = React.useState<ContextMenuState | null>(null);
   const [gotoForm, setGotoForm] = React.useState<Position | null>(null);
+  const clipboardCount = React.useRef(0);
 
   const tileAt = (e: React.MouseEvent) => camera.tileUnderCursor(e, inputs.current.floorZ);
   const notifyEdit = (z: number) => inputs.current.onEdit?.(z);
@@ -209,6 +213,26 @@ export function useMapInteraction(deps: InteractionDeps) {
     return { x: pos.x, y: pos.y, z: pos.z, hasTile: found >= 0, item };
   }
 
+  function groundAt(pos: Position): HoverItem | null {
+    const { items, itemNames } = inputs.current;
+    const ct = tiles.get(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK), pos.z, scene.frameTick.current);
+    if (!ct) return null;
+    let found = -1;
+    for (let i = 0; i < ct.tileX.length; i++) {
+      if (ct.tileX[i] === pos.x && ct.tileY[i] === pos.y) {
+        found = i;
+        break;
+      }
+    }
+    if (found < 0 || ct.itemOffset[found + 1] <= ct.itemOffset[found]) return null;
+    const slot = ct.itemOffset[found];
+    const clientId = ct.clientIds[slot];
+    const serverId = ct.serverIds[slot];
+    const thing = items.get(clientId);
+    if (!thing?.isGround) return null;
+    return { serverId, clientId, name: itemNames.get(serverId) ?? thing.marketName ?? '', count: 1 };
+  }
+
   function finishMove() {
     const md = scene.moveDrag.current;
     scene.moveDrag.current = null;
@@ -258,6 +282,59 @@ export function useMapInteraction(deps: InteractionDeps) {
         inputs.current.onSelect(null);
       })
       .catch((err) => console.error('Failed to delete selection', err));
+  }
+
+  function selectionArrays() {
+    const sel = [...selection.entries.current.values()];
+    if (sel.length === 0) return null;
+    return { z: sel[0].z, xs: sel.map((t) => t.x), ys: sel.map((t) => t.y), all: sel.map((t) => t.all) };
+  }
+
+  function copySelected() {
+    const s = selectionArrays();
+    if (!s) return Promise.resolve();
+    return copySelection(inputs.current.map.id, s.z, s.xs, s.ys, s.all)
+      .then((n) => {
+        clipboardCount.current = n;
+      })
+      .catch((err) => console.error('Copy failed', err));
+  }
+
+  function cutSelected() {
+    copySelected().then(() => deleteSelected());
+  }
+
+  function pasteAt(pos: Position) {
+    if (clipboardCount.current === 0) return;
+    pasteSelection(inputs.current.map.id, pos.x, pos.y, pos.z)
+      .then((touched) => refetchKeysNow(touched, pos.z))
+      .then(() => {
+        atlas.version.current++;
+      })
+      .catch((err) => console.error('Paste failed', err));
+  }
+
+  function copyText(text: string) {
+    navigator.clipboard?.writeText(text).catch((err) => console.error('Clipboard write failed', err));
+  }
+
+  function copyPosition(pos: Position) {
+    copyText(formatPosition(inputs.current.copyPositionFormat, pos));
+  }
+
+  function selectGround(item: HoverItem) {
+    const thing = inputs.current.items.get(item.clientId);
+    inputs.current.onSelectBrush({
+      key: `ground-${item.serverId}`,
+      name: item.name || `Item ${item.serverId}`,
+      kind: 'ground',
+      serverId: item.serverId,
+      isGround: true,
+      cols: thing?.width ?? 1,
+      rows: thing?.height ?? 1,
+      preview: buildItemPreview(thing, atlas.data.current)
+    });
+    setMenu(null);
   }
 
   function applyHistory(pairs: [number, number][]) {
@@ -343,6 +420,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       }
       if (md.active) scene.moveDest.current = tileAt(e);
     }
+    if (menu) return;
     const pos = tileAt(e);
     scene.hoveredTile.current = pos;
     const key = `${pos.x},${pos.y},${pos.z}`;
@@ -376,6 +454,7 @@ export function useMapInteraction(deps: InteractionDeps) {
   }
 
   function onMouseLeave() {
+    if (menu) return;
     selection.box.current = null;
     setBoxing(false);
     clearBoxPreview();
@@ -405,8 +484,18 @@ export function useMapInteraction(deps: InteractionDeps) {
     const info = hoverAt(tile);
     selection.selectTile(tile, false);
     inputs.current.onSelect(info.item);
+    inputs.current.onHover(info);
     const dest = inputs.current.map.teleports.get(`${tile.x},${tile.y},${tile.z}`) ?? null;
-    setMenu({ clientX: e.clientX, clientY: e.clientY, tile, dest, item: info.item });
+    setMenu({
+      clientX: e.clientX,
+      clientY: e.clientY,
+      tile,
+      dest,
+      item: info.item,
+      ground: groundAt(tile),
+      hasSelection: selection.entries.current.size > 0,
+      canPaste: clipboardCount.current > 0
+    });
   }
 
   function selectRaw(item: HoverItem) {
@@ -451,6 +540,22 @@ export function useMapInteraction(deps: InteractionDeps) {
         undo();
         return;
       }
+      if (mod && key === 'c') {
+        e.preventDefault();
+        copySelected();
+        return;
+      }
+      if (mod && key === 'x') {
+        e.preventDefault();
+        cutSelected();
+        return;
+      }
+      if (mod && key === 'v') {
+        e.preventDefault();
+        const t = scene.hoveredTile.current;
+        if (t) pasteAt(t);
+        return;
+      }
       if (e.key === 'Delete' && selection.entries.current.size > 0) {
         e.preventDefault();
         deleteSelected();
@@ -467,7 +572,32 @@ export function useMapInteraction(deps: InteractionDeps) {
     menu,
     gotoForm,
     selectRaw,
+    selectGround,
     goTo,
+    cut: () => {
+      cutSelected();
+      setMenu(null);
+    },
+    copy: () => {
+      copySelected();
+      setMenu(null);
+    },
+    paste: (pos: Position) => {
+      pasteAt(pos);
+      setMenu(null);
+    },
+    deleteSelected: () => {
+      deleteSelected();
+      setMenu(null);
+    },
+    copyPosition: (pos: Position) => {
+      copyPosition(pos);
+      setMenu(null);
+    },
+    copyText: (text: string) => {
+      copyText(text);
+      setMenu(null);
+    },
     openGoto: (tile: Position) => {
       setGotoForm(tile);
       setMenu(null);

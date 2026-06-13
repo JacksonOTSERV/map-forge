@@ -46,6 +46,9 @@ export interface ContextMenuState {
   tile: Position;
   dest: Position | null;
   item: HoverItem | null;
+  ground: HoverItem | null;
+  hasSelection: boolean;
+  canPaste: boolean;
 }
 
 export interface MapCanvasProps {
@@ -67,6 +70,7 @@ export interface MapCanvasProps {
   activeBrush: ActiveBrush | null;
   activeTool: ToolId;
   automagic: boolean;
+  copyPositionFormat: string;
   onEdit?: (z: number) => void;
   viewRef?: React.MutableRefObject<MapView | null>;
   centerRef?: React.MutableRefObject<((x: number, y: number) => void) | null>;

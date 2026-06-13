@@ -8,7 +8,17 @@ use crate::map_model::{
 };
 use crate::materials::{self, Materials};
 use crate::otb::OtbItems;
-use crate::{MapState, MaterialsState, OtbState, PlaceFlags, PlacementState};
+use crate::{CopyBufferState, MapState, MaterialsState, OtbState, PlaceFlags, PlacementState};
+
+pub struct CopyTile {
+	pub dx: u16,
+	pub dy: u16,
+	pub items: Vec<(u16, u16)>,
+}
+
+pub struct CopyBuffer {
+	pub tiles: Vec<CopyTile>,
+}
 
 const GROUND_CLASS: i32 = -1;
 const BORDER_CLASS: i32 = 0;
@@ -699,6 +709,83 @@ pub fn delete_selection(
 		}
 	}
 	m.record_commit(ACTION_DELETE);
+	Ok(touched.into_iter().collect())
+}
+
+#[tauri::command]
+pub fn copy_selection(
+	map_id: u32,
+	z: u8,
+	xs: Vec<u16>,
+	ys: Vec<u16>,
+	all: Vec<bool>,
+	map_state: tauri::State<MapState>,
+	clip_state: tauri::State<CopyBufferState>,
+) -> Result<u32, String> {
+	if xs.len() != ys.len() || xs.len() != all.len() {
+		return Err("selection arrays length mismatch".into());
+	}
+
+	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get(&map_id).ok_or("map not loaded")?;
+
+	let min_x = xs.iter().copied().min().unwrap_or(0);
+	let min_y = ys.iter().copied().min().unwrap_or(0);
+
+	let mut tiles: Vec<CopyTile> = Vec::new();
+	for i in 0..xs.len() {
+		let (x, y) = (xs[i], ys[i]);
+		let stack = stack_at(m, z, x, y);
+		if stack.is_empty() {
+			continue;
+		}
+		let items = if all[i] { stack } else { vec![*stack.last().unwrap()] };
+		tiles.push(CopyTile { dx: x - min_x, dy: y - min_y, items });
+	}
+
+	let count = tiles.len() as u32;
+	*clip_state.lock().map_err(|e| format!("Lock error: {}", e))? = if tiles.is_empty() { None } else { Some(CopyBuffer { tiles }) };
+	Ok(count)
+}
+
+#[tauri::command]
+pub fn paste_selection(
+	map_id: u32,
+	x: u16,
+	y: u16,
+	z: u8,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+	clip_state: tauri::State<CopyBufferState>,
+) -> Result<Vec<u32>, String> {
+	let clip = clip_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let Some(buffer) = clip.as_ref() else {
+		return Ok(Vec::new());
+	};
+
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let mats = materials_guard.as_ref();
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.record_begin();
+
+	let mut touched: HashSet<u32> = HashSet::new();
+	for tile in &buffer.tiles {
+		let tx = x as u32 + tile.dx as u32;
+		let ty = y as u32 + tile.dy as u32;
+		if tx > u16::MAX as u32 || ty > u16::MAX as u32 {
+			continue;
+		}
+		let (tx, ty) = (tx as u16, ty as u16);
+		for &(client, server) in &tile.items {
+			insert_ordered(tile_stack_mut(m, z, tx, ty), &place, mats, client, server);
+		}
+		touched.insert(chunk_key_of(tx, ty));
+	}
+	m.record_commit(ACTION_PAINT);
 	Ok(touched.into_iter().collect())
 }
 

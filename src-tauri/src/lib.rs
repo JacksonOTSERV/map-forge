@@ -27,7 +27,9 @@ use commands::{
 	close_spr_file, load_materials, load_otb, map_client_ids, open_spr_file, parse_dat_file_bin, read_file, read_file_header,
 	read_file_text, read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic,
 };
-use map_edit::{delete_item, delete_selection, erase_area, move_item, paint_tiles, preview_paint};
+use map_edit::{
+	copy_selection, delete_item, delete_selection, erase_area, move_item, paint_tiles, paste_selection, preview_paint, CopyBuffer,
+};
 use map_load::open_otbm;
 use map_model::{close_map, get_map_chunks, get_minimap, new_otbm, redo_edit, undo_edit, MapStore};
 
@@ -42,6 +44,7 @@ pub(crate) struct PlaceFlags {
 }
 
 pub(crate) type PlacementState = Arc<Mutex<HashMap<u16, PlaceFlags>>>;
+pub(crate) type CopyBufferState = Arc<Mutex<Option<CopyBuffer>>>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -50,6 +53,7 @@ pub fn run() {
 	let map_store: MapState = Arc::new(Mutex::new(MapStore::default()));
 	let materials_store: MaterialsState = Arc::new(Mutex::new(None));
 	let placement_store: PlacementState = Arc::new(Mutex::new(HashMap::new()));
+	let copy_buffer: CopyBufferState = Arc::new(Mutex::new(None));
 
 	tauri::Builder::default()
 		.plugin(tauri_plugin_dialog::init())
@@ -58,6 +62,7 @@ pub fn run() {
 		.manage(map_store)
 		.manage(materials_store)
 		.manage(placement_store)
+		.manage(copy_buffer)
 		.invoke_handler(tauri::generate_handler![
 			read_file,
 			read_file_text,
@@ -80,6 +85,8 @@ pub fn run() {
 			delete_item,
 			erase_area,
 			delete_selection,
+			copy_selection,
+			paste_selection,
 			undo_edit,
 			redo_edit,
 			get_map_chunks,

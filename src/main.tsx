@@ -24,6 +24,7 @@ import { useMapTabs } from '~/usecase/hooks/Workspace/useMapTabs';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
 import { useAppShortcuts } from '~/usecase/hooks/Workspace/useAppShortcuts';
+import { loadGeneralConfig, defaultGeneralConfig } from '~/adapter/preferences';
 
 import './styles/index.css';
 
@@ -35,6 +36,7 @@ const App = () => {
   const [preferencesOpen, setPreferencesOpen] = React.useState(false);
   const [hover, setHover] = React.useState<HoverInfo | null>(null);
   const [selectedItem, setSelectedItem] = React.useState<HoverItem | null>(null);
+  const [copyPositionFormat, setCopyPositionFormat] = React.useState(defaultGeneralConfig.copyPositionFormat);
 
   const mapViewRef = React.useRef<MapView | null>(null);
   const minimapApiRef = React.useRef<MinimapApi | null>(null);
@@ -105,6 +107,12 @@ const App = () => {
   React.useEffect(() => {
     void getSetting('minimapOpen', false).then(setMinimapOpen);
   }, []);
+
+  const reloadGeneral = React.useCallback(() => {
+    void loadGeneralConfig().then((g) => setCopyPositionFormat(g.copyPositionFormat));
+  }, []);
+
+  React.useEffect(reloadGeneral, [reloadGeneral]);
 
   React.useEffect(() => {
     setSelectedItem(null);
@@ -192,9 +200,12 @@ const App = () => {
 
       <Preferences
         open={preferencesOpen}
-        onSaved={dock.reloadConfig}
         onResetLayout={dock.resetLayout}
         onOpenChange={setPreferencesOpen}
+        onSaved={() => {
+          dock.reloadConfig();
+          reloadGeneral();
+        }}
       />
 
       <Workspace dock={dock} tabs={mapTabs} progress={progress} renderPanel={renderPanel}>
@@ -221,6 +232,7 @@ const App = () => {
             onToolChange={setActiveTool}
             itemNames={assets.itemNames}
             transparency={assets.transparency}
+            copyPositionFormat={copyPositionFormat}
             onEdit={(z) => minimapApiRef.current?.markDirty(z)}
           />
         ) : (

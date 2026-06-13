@@ -139,9 +139,15 @@ const MapCanvas = (props: MapCanvasProps) => {
       {interaction.menu && (
         <TileContextMenu
           menu={interaction.menu}
+          onCut={interaction.cut}
+          onCopy={interaction.copy}
+          onPaste={interaction.paste}
           onGoToDest={interaction.goTo}
+          onCopyText={interaction.copyText}
           onSelectRaw={interaction.selectRaw}
-          onGoToPosition={interaction.openGoto}
+          onDelete={interaction.deleteSelected}
+          onCopyPosition={interaction.copyPosition}
+          onSelectGround={interaction.selectGround}
         />
       )}
 
