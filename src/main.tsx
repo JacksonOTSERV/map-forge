@@ -6,7 +6,6 @@ import { ToolId } from '~/domain/tools';
 import { cornerOf } from '~/usecase/dock';
 import Toolbar from '~/components/Toolbar';
 import MapTabs from '~/components/MapTabs';
-import { ActiveBrush } from '~/domain/palette';
 import StatusBar from '~/components/StatusBar';
 import MapCanvas from '~/components/MapCanvas';
 import Workspace from '~/components/Workspace';
@@ -20,6 +19,7 @@ import { getSetting, setSetting } from '~/adapter/settings';
 import PanelDockMenu from '~/components/Dock/PanelDockMenu';
 import { useDock } from '~/usecase/hooks/Workspace/useDock';
 import { useAssets } from '~/usecase/hooks/Workspace/useAssets';
+import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
 import { useMapTabs } from '~/usecase/hooks/Workspace/useMapTabs';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
@@ -30,6 +30,7 @@ import './styles/index.css';
 
 const App = () => {
   const [activeBrush, setActiveBrush] = React.useState<ActiveBrush | null>(null);
+  const [reveal, setReveal] = React.useState<{ category: PaletteCategoryId; serverId: number; nonce: number } | null>(null);
   const [activeTool, setActiveTool] = React.useState<ToolId>('select');
   const [automagic, setAutomagic] = React.useState(true);
   const [minimapOpen, setMinimapOpen] = React.useState(false);
@@ -91,6 +92,10 @@ const App = () => {
     setActiveTool(brush ? 'brush' : 'select');
   };
 
+  const revealInPalette = (category: PaletteCategoryId, serverId: number) => {
+    setReveal((r) => ({ category, serverId, nonce: (r?.nonce ?? 0) + 1 }));
+  };
+
   useAppShortcuts({
     activeId,
     handleNew,
@@ -145,6 +150,7 @@ const App = () => {
       return (
         <PalettePanel
           data={palette}
+          reveal={reveal}
           dragHandle={handle}
           items={assets.items}
           outfits={assets.outfits}
@@ -231,6 +237,7 @@ const App = () => {
             onSelectBrush={selectBrush}
             onToolChange={setActiveTool}
             itemNames={assets.itemNames}
+            onRevealBrush={revealInPalette}
             transparency={assets.transparency}
             copyPositionFormat={copyPositionFormat}
             onEdit={(z) => minimapApiRef.current?.markDirty(z)}

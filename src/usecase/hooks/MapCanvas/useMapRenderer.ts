@@ -229,10 +229,11 @@ export function useMapRenderer(deps: RendererDeps) {
       ghost.style.width = `${w}px`;
       ghost.style.height = `${h}px`;
       ghost.style.transform = transform;
-    } else {
-      ghost.style.display = 'none';
+      outline.style.display = 'none';
+      return;
     }
 
+    ghost.style.display = 'none';
     outline.style.display = 'block';
     outline.style.width = `${w}px`;
     outline.style.height = `${h}px`;

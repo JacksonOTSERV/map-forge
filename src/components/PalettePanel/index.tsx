@@ -38,6 +38,13 @@ interface PalettePanelProps {
   outfits: Map<number, ThingType>;
   dragHandle?: DragHandleProps;
   onSelectBrush: (brush: ActiveBrush | null) => void;
+  reveal?: { category: PaletteCategoryId; serverId: number; nonce: number } | null;
+}
+
+interface PendingReveal {
+  category: PaletteCategoryId;
+  tilesetName: string;
+  key: string;
 }
 
 interface Tile {
@@ -48,9 +55,11 @@ interface Tile {
 const SHARED_SPRITE_CACHE = new Map<number, LoadedSprite>();
 const SHARED_SERVER_TO_CLIENT = new Map<number, number>();
 
-const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle, onSelectBrush }: PalettePanelProps) => {
+const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle, onSelectBrush, reveal }: PalettePanelProps) => {
   const spriteCache = React.useRef(SHARED_SPRITE_CACHE);
   const serverToClient = React.useRef(SHARED_SERVER_TO_CLIENT);
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const pending = React.useRef<PendingReveal | null>(null);
 
   const [category, setCategory] = React.useState<PaletteCategoryId>('terrain');
   const [tilesetName, setTilesetName] = React.useState<string>('');
@@ -65,8 +74,35 @@ const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle,
   );
 
   React.useEffect(() => {
+    if (pending.current?.category === category) return;
     setTilesetName(data[category][0]?.name ?? '');
   }, [category, data]);
+
+  React.useEffect(() => {
+    if (!reveal) return;
+    const order = [reveal.category, ...PALETTE_CATEGORIES.map((c) => c.id).filter((id) => id !== reveal.category)];
+    for (const cat of order) {
+      const ts = data[cat]?.find((t) => t.brushes.some((b) => b.lookServerId === reveal.serverId));
+      const brush = ts?.brushes.find((b) => b.lookServerId === reveal.serverId);
+      if (ts && brush) {
+        pending.current = { category: cat, tilesetName: ts.name, key: brush.key };
+        setCategory(cat);
+        setTilesetName(ts.name);
+        return;
+      }
+    }
+  }, [reveal?.nonce]);
+
+  React.useEffect(() => {
+    const pend = pending.current;
+    if (!pend || current?.name !== pend.tilesetName || !tiles.some((t) => t.brush.key === pend.key)) return;
+    setSelectedKey(pend.key);
+    const key = pend.key;
+    pending.current = null;
+    requestAnimationFrame(() => {
+      scrollRef.current?.querySelector(`[data-brush-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' });
+    });
+  }, [tiles, current]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -182,7 +218,7 @@ const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle,
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
         {tiles.length === 0 ? (
           <div className="px-1 py-6 text-center text-xs text-muted-foreground">No brushes in this tileset.</div>
         ) : (
@@ -191,6 +227,7 @@ const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle,
               <button
                 key={tile.brush.key}
                 title={tile.brush.name}
+                data-brush-key={tile.brush.key}
                 onClick={() => handleSelect(tile)}
                 className={cn(
                   'flex aspect-square items-center justify-center rounded border bg-muted/40 p-0.5 transition-colors hover:bg-item-hover',

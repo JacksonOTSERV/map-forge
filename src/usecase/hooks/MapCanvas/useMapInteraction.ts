@@ -334,6 +334,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       rows: thing?.height ?? 1,
       preview: buildItemPreview(thing, atlas.data.current)
     });
+    inputs.current.onRevealBrush?.('terrain', item.serverId);
     setMenu(null);
   }
 
@@ -510,6 +511,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       rows: thing?.height ?? 1,
       preview: buildItemPreview(thing, atlas.data.current)
     });
+    inputs.current.onRevealBrush?.('raw', item.serverId);
     setMenu(null);
   }
 

@@ -24,7 +24,8 @@ mod map_load;
 mod map_model;
 
 use commands::{
-	close_spr_file, load_materials, load_otb, map_client_ids, open_spr_file, parse_dat_file_bin, read_file, read_file_header,
+	all_server_ids, close_spr_file, load_materials, load_otb, map_client_ids, open_spr_file, parse_dat_file_bin, read_file,
+	read_file_header,
 	read_file_text, read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic,
 };
 use map_edit::{
@@ -76,6 +77,7 @@ pub fn run() {
 			load_otb,
 			load_materials,
 			map_client_ids,
+			all_server_ids,
 			open_otbm,
 			new_otbm,
 			close_map,

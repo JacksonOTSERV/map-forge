@@ -90,23 +90,43 @@ function collectBrushSection(tsEl: Element, sectionTags: string[], index: BrushI
   return out;
 }
 
-function collectRawItems(tsEl: Element): PaletteBrush[] {
+function collectItemIds(tsEl: Element, tags: string[], keyTag: string, into?: Set<number>): PaletteBrush[] {
   const tsName = tsEl.getAttribute('name') ?? '';
   const out: PaletteBrush[] = [];
   const seen = new Set<number>();
-  const tags = ['raw', 'items', 'itemsAndRaw', 'terrainAndRaw', 'doodadAndRaw'];
   for (const tag of tags) {
     for (const section of directChildren(tsEl, tag)) {
       for (const item of directChildren(section, 'item')) {
         for (const id of expandRange(item)) {
           if (seen.has(id)) continue;
           seen.add(id);
-          out.push({ key: `${tsName}:raw:${id}`, name: `Item ${id}`, kind: 'rawItem', lookServerId: id });
+          into?.add(id);
+          out.push({ key: `${tsName}:${keyTag}:${id}`, name: `Item ${id}`, kind: 'rawItem', lookServerId: id });
         }
       }
     }
   }
   return out;
+}
+
+const ITEM_SECTION_TAGS = ['items', 'items_and_raw'];
+const RAW_SECTION_TAGS = ['raw', 'terrain_and_raw', 'doodad_and_raw', 'items_and_raw', 'collections_and_raw'];
+
+function collectItems(tsEl: Element): PaletteBrush[] {
+  return collectItemIds(tsEl, ITEM_SECTION_TAGS, 'item');
+}
+
+function collectRaw(tsEl: Element, claimed: Set<number>): PaletteBrush[] {
+  return collectItemIds(tsEl, RAW_SECTION_TAGS, 'raw', claimed);
+}
+
+function buildOthersTileset(serverIds: number[], claimed: Set<number>): PaletteTileset | null {
+  const brushes: PaletteBrush[] = [];
+  for (const id of serverIds) {
+    if (claimed.has(id)) continue;
+    brushes.push({ key: `Others:raw:${id}`, name: `Item ${id}`, kind: 'rawItem', lookServerId: id });
+  }
+  return brushes.length ? { name: 'Others', brushes } : null;
 }
 
 const CREATURE_GROUP_LABELS: Record<string, string> = { monster: 'Monsters', npc: 'NPCs' };
@@ -139,13 +159,22 @@ function buildCreatureTilesets(doc: Document): PaletteTileset[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+async function allServerIds(): Promise<number[]> {
+  try {
+    return await invoke<number[]>('all_server_ids');
+  } catch {
+    return [];
+  }
+}
+
 export async function loadPalette(dir = DEFAULT_DATA_DIR): Promise<PaletteData> {
-  const [tilesetsDoc, groundsDoc, wallsDoc, doodadsDoc, creaturesDoc] = await Promise.all([
+  const [tilesetsDoc, groundsDoc, wallsDoc, doodadsDoc, creaturesDoc, serverIds] = await Promise.all([
     readXml(dir, 'tilesets.xml'),
     readXml(dir, 'grounds.xml'),
     readXml(dir, 'walls.xml'),
     readXml(dir, 'doodads.xml'),
-    readXml(dir, 'creatures.xml')
+    readXml(dir, 'creatures.xml'),
+    allServerIds()
   ]);
 
   const index: BrushIndex = new Map();
@@ -153,17 +182,23 @@ export async function loadPalette(dir = DEFAULT_DATA_DIR): Promise<PaletteData> 
   indexBrushes(wallsDoc, 'wall', index);
   indexBrushes(doodadsDoc, 'doodad', index);
 
-  const data: PaletteData = { terrain: [], doodad: [], item: [], creature: [] };
+  const data: PaletteData = { terrain: [], doodad: [], item: [], raw: [], creature: [] };
+  const claimed = new Set<number>();
 
   for (const tsEl of topLevel(tilesetsDoc, 'tileset')) {
     const name = tsEl.getAttribute('name') ?? '';
-    const terrain = collectBrushSection(tsEl, ['terrain', 'terrainAndRaw'], index);
-    const doodad = collectBrushSection(tsEl, ['doodad', 'doodadAndRaw'], index);
-    const item = collectRawItems(tsEl);
+    const terrain = collectBrushSection(tsEl, ['terrain', 'terrain_and_raw'], index);
+    const doodad = collectBrushSection(tsEl, ['doodad', 'doodad_and_raw'], index);
+    const item = collectItems(tsEl);
+    const raw = collectRaw(tsEl, claimed);
     if (terrain.length) data.terrain.push({ name, brushes: terrain });
     if (doodad.length) data.doodad.push({ name, brushes: doodad });
     if (item.length) data.item.push({ name, brushes: item });
+    if (raw.length) data.raw.push({ name, brushes: raw });
   }
+
+  const others = buildOthersTileset(serverIds, claimed);
+  if (others) data.raw.push(others);
 
   data.creature = buildCreatureTilesets(creaturesDoc);
 

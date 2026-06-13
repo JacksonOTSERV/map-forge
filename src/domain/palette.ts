@@ -1,4 +1,4 @@
-export type PaletteCategoryId = 'terrain' | 'doodad' | 'item' | 'creature';
+export type PaletteCategoryId = 'terrain' | 'doodad' | 'item' | 'raw' | 'creature';
 
 export interface PaletteCategoryMeta {
   id: PaletteCategoryId;
@@ -9,6 +9,7 @@ export const PALETTE_CATEGORIES: PaletteCategoryMeta[] = [
   { id: 'terrain', label: 'Terrain Palette' },
   { id: 'doodad', label: 'Doodad Palette' },
   { id: 'item', label: 'Item Palette' },
+  { id: 'raw', label: 'RAW Palette' },
   { id: 'creature', label: 'Creature Palette' }
 ];
 

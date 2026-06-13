@@ -129,6 +129,15 @@ pub fn map_client_ids(server_ids: Vec<u16>, otb_state: tauri::State<OtbState>) -
 }
 
 #[tauri::command]
+pub fn all_server_ids(otb_state: tauri::State<OtbState>) -> Result<Vec<u16>, String> {
+	let guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = guard.as_ref().ok_or("OTB not loaded")?;
+	let mut ids: Vec<u16> = otb.server_to_client.keys().copied().collect();
+	ids.sort_unstable();
+	Ok(ids)
+}
+
+#[tauri::command]
 #[allow(unused_variables)]
 pub fn set_window_acrylic(window: tauri::Window, enabled: bool, color: Option<(u8, u8, u8, u8)>) -> Result<(), String> {
 	#[cfg(target_os = "windows")]

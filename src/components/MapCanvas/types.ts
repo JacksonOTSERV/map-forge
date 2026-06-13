@@ -2,8 +2,8 @@ import React from 'react';
 
 import { ToolId } from '~/domain/tools';
 import { ThingType } from '~/domain/tibia';
-import { ActiveBrush } from '~/domain/palette';
 import { MapView, MapMeta, Position } from '~/domain/map';
+import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
 
 export interface Camera {
   x: number;
@@ -66,6 +66,7 @@ export interface MapCanvasProps {
   onHover: (info: HoverInfo | null) => void;
   onSelect: (item: HoverItem | null) => void;
   onSelectBrush: (brush: ActiveBrush | null) => void;
+  onRevealBrush?: (category: PaletteCategoryId, serverId: number) => void;
   onToolChange: (tool: ToolId) => void;
   activeBrush: ActiveBrush | null;
   activeTool: ToolId;
