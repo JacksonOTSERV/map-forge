@@ -1023,3 +1023,8 @@ html.acrylic .bg-card.shadow-island-lg {
 		transition: none;
 	}
 }
+
+.panning-grab,
+.panning-grab * {
+	cursor: grabbing !important;
+}

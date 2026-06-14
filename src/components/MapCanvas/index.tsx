@@ -85,6 +85,16 @@ const MapCanvas = (props: MapCanvasProps) => {
     tiles.clear();
   }, [map]);
 
+  React.useEffect(() => {
+    meshes.clear();
+  }, [props.spawns, props.showCreatures]);
+
+  React.useEffect(() => {
+    const el = document.documentElement;
+    el.classList.toggle('panning-grab', camera.panning);
+    return () => el.classList.remove('panning-grab');
+  }, [camera.panning]);
+
   const paintable = activeTool === 'brush' && activeBrush != null && activeBrush.serverId != null;
   const canvasCursor = paintable
     ? DRAW_CURSOR
