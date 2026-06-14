@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
-import { MapMeta, Position, ChunkTiles, PreviewTile, OtbmProgress } from '~/domain/map';
+import { Town, MapMeta, Position, ChunkTiles, PreviewTile, OtbmProgress, MapProperties, MapStatistics } from '~/domain/map';
 
 export const packChunkKey = (cx: number, cy: number): number => (cx << 16) | cy;
 
@@ -102,6 +102,29 @@ export async function saveOtbm(mapId: number, path: string, onProgress?: (value:
   } finally {
     unlisten?.();
   }
+}
+
+export async function getTowns(mapId: number): Promise<Town[]> {
+  return invoke<Town[]>('get_towns', { mapId });
+}
+
+export async function setTowns(mapId: number, towns: Town[]): Promise<void> {
+  await invoke('set_towns', { mapId, towns });
+}
+
+export async function getMapProperties(mapId: number): Promise<MapProperties> {
+  return invoke<MapProperties>('get_map_properties', { mapId });
+}
+
+export async function setMapProperties(
+  mapId: number,
+  patch: Pick<MapProperties, 'description' | 'spawnFile' | 'houseFile' | 'otbmVersion' | 'itemsMinor'>
+): Promise<void> {
+  await invoke('set_map_properties', { mapId, patch });
+}
+
+export async function getMapStatistics(mapId: number): Promise<MapStatistics> {
+  return invoke<MapStatistics>('map_statistics', { mapId });
 }
 
 export async function paintTiles(

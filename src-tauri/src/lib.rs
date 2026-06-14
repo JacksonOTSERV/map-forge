@@ -23,6 +23,7 @@ use materials::Materials;
 mod commands;
 mod map_edit;
 mod map_load;
+mod map_meta;
 mod map_model;
 mod map_save;
 
@@ -35,6 +36,7 @@ use map_edit::{
 	copy_selection, delete_item, delete_selection, erase_area, move_item, paint_tiles, paste_selection, preview_paint, CopyBuffer,
 };
 use map_load::open_otbm;
+use map_meta::{get_map_properties, get_towns, map_statistics, set_map_properties, set_towns};
 use map_model::{close_map, get_map_chunks, get_minimap, new_otbm, redo_edit, set_minimap_palette, undo_edit, MapStore};
 use map_save::save_otbm;
 
@@ -89,6 +91,11 @@ pub fn run() {
 			save_otbm,
 			new_otbm,
 			close_map,
+			get_towns,
+			set_towns,
+			get_map_properties,
+			set_map_properties,
+			map_statistics,
 			paint_tiles,
 			preview_paint,
 			move_item,

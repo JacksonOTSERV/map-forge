@@ -4,7 +4,7 @@ use std::io::{Read, Seek, SeekFrom};
 use tauri::ipc::Response;
 use tauri::Emitter;
 
-use crate::map_model::{build_map_model, lazy_model, serialize_meta, store_map, MapModel};
+use crate::map_model::{build_map_model, lazy_model, serialize_meta, store_map, MapModel, Town};
 use crate::otb::OtbItems;
 use crate::otbm::{read_otbm, read_otbm_header, OtbmVisitor};
 use crate::otbm_footer::MapIndex;
@@ -53,11 +53,19 @@ pub(crate) struct OtbmCollector<'a> {
 	pub(crate) teleports: Vec<u8>,
 	pub(crate) teleport_count: u32,
 	pub(crate) last_step: i32,
+	pub(crate) description: String,
+	pub(crate) spawn_file: String,
+	pub(crate) house_file: String,
+	pub(crate) otbm_version: u32,
+	pub(crate) items_major: u32,
+	pub(crate) items_minor: u32,
+	pub(crate) towns: Vec<Town>,
+	pub(crate) house_tile_count: u32,
 }
 
 impl OtbmCollector<'_> {
 	fn finish(self) -> MapModel {
-		let model = build_map_model(
+		let mut model = build_map_model(
 			self.width,
 			self.height,
 			&self.xs,
@@ -70,6 +78,14 @@ impl OtbmCollector<'_> {
 			self.teleports,
 			self.teleport_count,
 		);
+		model.description = self.description;
+		model.spawn_file = self.spawn_file;
+		model.house_file = self.house_file;
+		model.otbm_version = self.otbm_version;
+		model.items_major = self.items_major;
+		model.items_minor = self.items_minor;
+		model.towns = self.towns;
+		model.house_tile_count = self.house_tile_count;
 		let _ = self.window.emit("otbm_progress", 1.0_f64);
 		model
 	}
@@ -120,6 +136,32 @@ impl OtbmVisitor for OtbmCollector<'_> {
 		self.teleports.push(dz);
 		self.teleport_count += 1;
 	}
+
+	fn map_version(&mut self, otbm: u32, items_major: u32, items_minor: u32) {
+		self.otbm_version = otbm;
+		self.items_major = items_major;
+		self.items_minor = items_minor;
+	}
+
+	fn map_description(&mut self, text: String) {
+		self.description = text;
+	}
+
+	fn spawn_file(&mut self, name: String) {
+		self.spawn_file = name;
+	}
+
+	fn house_file(&mut self, name: String) {
+		self.house_file = name;
+	}
+
+	fn house_tile(&mut self, _x: u16, _y: u16, _z: u8) {
+		self.house_tile_count += 1;
+	}
+
+	fn town(&mut self, id: u32, name: String, x: u16, y: u16, z: u8) {
+		self.towns.push(Town { id, name, x, y, z });
+	}
 }
 
 #[tauri::command]
@@ -158,6 +200,14 @@ pub async fn open_otbm(
 			teleports: Vec::new(),
 			teleport_count: 0,
 			last_step: -1,
+			description: String::new(),
+			spawn_file: String::new(),
+			house_file: String::new(),
+			otbm_version: 0,
+			items_major: 0,
+			items_minor: 0,
+			towns: Vec::new(),
+			house_tile_count: 0,
 		};
 		read_otbm(&bytes, &mut collector)?;
 		let mut model = collector.finish();

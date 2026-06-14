@@ -13,20 +13,21 @@ const OTBM_MAP_DATA: u8 = 2;
 const OTBM_TILE_AREA: u8 = 4;
 const OTBM_TILE: u8 = 5;
 const OTBM_ITEM: u8 = 6;
+const OTBM_TOWNS: u8 = 12;
+const OTBM_TOWN: u8 = 13;
 const OTBM_ATTR_ITEM: u8 = 9;
 
-const NEW_MAP_OTBM_VERSION: u32 = 2;
-const NEW_MAP_ITEMS_MAJOR: u32 = 3;
-const NEW_MAP_ITEMS_MINOR: u32 = 860;
+const OTBM_ATTR_DESCRIPTION: u8 = 1;
+const OTBM_ATTR_EXT_SPAWN_FILE: u8 = 11;
+const OTBM_ATTR_EXT_HOUSE_FILE: u8 = 13;
 
 struct SaveScan {
 	ident: (usize, usize),
-	root: (usize, usize),
-	attrs: (usize, usize),
 	others: Vec<(usize, usize)>,
 	tiles: Vec<(u8, u16, u16, usize, usize)>,
 	teleports: Vec<u8>,
 	teleport_count: u32,
+	house_tile_count: u32,
 	min_x: u16,
 	min_y: u16,
 	max_x: u16,
@@ -37,12 +38,11 @@ impl Default for SaveScan {
 	fn default() -> Self {
 		SaveScan {
 			ident: (0, 0),
-			root: (0, 0),
-			attrs: (0, 0),
 			others: Vec::new(),
 			tiles: Vec::new(),
 			teleports: Vec::new(),
 			teleport_count: 0,
+			house_tile_count: 0,
 			min_x: u16::MAX,
 			min_y: u16::MAX,
 			max_x: 0,
@@ -67,17 +67,14 @@ impl OtbmVisitor for SaveScan {
 	fn identifier(&mut self, start: usize, end: usize) {
 		self.ident = (start, end);
 	}
-	fn root_payload(&mut self, start: usize, end: usize) {
-		self.root = (start, end);
-	}
-	fn map_attrs(&mut self, start: usize, end: usize) {
-		self.attrs = (start, end);
-	}
-	fn tile_span(&mut self, x: u16, y: u16, z: u8, _house: bool, start: usize, end: usize) {
+	fn tile_span(&mut self, x: u16, y: u16, z: u8, house: bool, start: usize, end: usize) {
 		self.min_x = self.min_x.min(x);
 		self.min_y = self.min_y.min(y);
 		self.max_x = self.max_x.max(x);
 		self.max_y = self.max_y.max(y);
+		if house {
+			self.house_tile_count += 1;
+		}
 		self.tiles.push((z, x, y, start, end));
 	}
 	fn other_child(&mut self, start: usize, end: usize) {
@@ -178,6 +175,66 @@ fn write_footer(w: &mut NodeWriter, index: &MapIndex) {
 	w.footer(&index.encode());
 }
 
+fn serialize_root(w: &mut NodeWriter, model: &MapModel) {
+	w.u32(model.otbm_version);
+	w.u16(model.width);
+	w.u16(model.height);
+	w.u32(model.items_major);
+	w.u32(model.items_minor);
+}
+
+fn serialize_map_attrs(w: &mut NodeWriter, model: &MapModel) {
+	if !model.description.is_empty() {
+		w.u8(OTBM_ATTR_DESCRIPTION);
+		w.string(&model.description);
+	}
+	if !model.spawn_file.is_empty() {
+		w.u8(OTBM_ATTR_EXT_SPAWN_FILE);
+		w.string(&model.spawn_file);
+	}
+	if !model.house_file.is_empty() {
+		w.u8(OTBM_ATTR_EXT_HOUSE_FILE);
+		w.string(&model.house_file);
+	}
+}
+
+fn serialize_towns(w: &mut NodeWriter, model: &MapModel) {
+	if model.towns.is_empty() {
+		return;
+	}
+	w.node_start(OTBM_TOWNS);
+	for t in &model.towns {
+		w.node_start(OTBM_TOWN);
+		w.u32(t.id);
+		w.string(&t.name);
+		w.u16(t.x);
+		w.u16(t.y);
+		w.u8(t.z);
+		w.node_end();
+	}
+	w.node_end();
+}
+
+fn build_index(model: &MapModel, chunks: Vec<ChunkEntry>, min_x: u16, min_y: u16, max_x: u16, max_y: u16, house_tile_count: u32) -> MapIndex {
+	MapIndex {
+		chunks,
+		min_x,
+		min_y,
+		max_x,
+		max_y,
+		teleports: model.teleports.clone(),
+		teleport_count: model.teleport_count,
+		description: model.description.clone(),
+		spawn_file: model.spawn_file.clone(),
+		house_file: model.house_file.clone(),
+		otbm_version: model.otbm_version,
+		items_major: model.items_major,
+		items_minor: model.items_minor,
+		towns: model.towns.clone(),
+		house_tile_count,
+	}
+}
+
 fn build_faithful(model: &MapModel, bytes: &[u8], report: &mut dyn FnMut(f64, &str)) -> Result<Vec<u8>, String> {
 	let mut scan = SaveScan::default();
 	read_otbm(bytes, &mut scan)?;
@@ -192,9 +249,9 @@ fn build_faithful(model: &MapModel, bytes: &[u8], report: &mut dyn FnMut(f64, &s
 	let mut w = NodeWriter::with_capacity(bytes.len() + 4096);
 	w.identifier(&bytes[scan.ident.0..scan.ident.1]);
 	w.node_start(0);
-	w.raw_escaped(&bytes[scan.root.0..scan.root.1]);
+	serialize_root(&mut w, model);
 	w.node_start(OTBM_MAP_DATA);
-	w.raw_escaped(&bytes[scan.attrs.0..scan.attrs.1]);
+	serialize_map_attrs(&mut w, model);
 
 	let mut chunks: Vec<ChunkEntry> = Vec::new();
 	for z in 0u8..=15 {
@@ -220,6 +277,7 @@ fn build_faithful(model: &MapModel, bytes: &[u8], report: &mut dyn FnMut(f64, &s
 		chunks.extend(emit_floor(&mut w, Some(bytes), z, list));
 	}
 
+	serialize_towns(&mut w, model);
 	for &(s, e) in &scan.others {
 		w.raw_escaped(&bytes[s..e]);
 	}
@@ -227,15 +285,7 @@ fn build_faithful(model: &MapModel, bytes: &[u8], report: &mut dyn FnMut(f64, &s
 	w.node_end();
 
 	let (min_x, min_y) = if scan.tiles.is_empty() { (0, 0) } else { (scan.min_x, scan.min_y) };
-	let index = MapIndex {
-		chunks,
-		min_x,
-		min_y,
-		max_x: scan.max_x,
-		max_y: scan.max_y,
-		teleports: scan.teleports,
-		teleport_count: scan.teleport_count,
-	};
+	let index = build_index(model, chunks, min_x, min_y, scan.max_x, scan.max_y, scan.house_tile_count);
 	write_footer(&mut w, &index);
 	Ok(w.into_bytes())
 }
@@ -246,12 +296,9 @@ fn build_from_model(model: &MapModel, report: &mut dyn FnMut(f64, &str)) -> Resu
 	let mut w = NodeWriter::with_capacity(64 * 1024);
 	w.identifier(&[0, 0, 0, 0]);
 	w.node_start(0);
-	w.u32(NEW_MAP_OTBM_VERSION);
-	w.u16(model.width);
-	w.u16(model.height);
-	w.u32(NEW_MAP_ITEMS_MAJOR);
-	w.u32(NEW_MAP_ITEMS_MINOR);
+	serialize_root(&mut w, model);
 	w.node_start(OTBM_MAP_DATA);
+	serialize_map_attrs(&mut w, model);
 
 	let mut chunks: Vec<ChunkEntry> = Vec::new();
 	for z in 0u8..=15 {
@@ -285,18 +332,11 @@ fn build_from_model(model: &MapModel, report: &mut dyn FnMut(f64, &str)) -> Resu
 		chunks.extend(emit_floor(&mut w, None, z, list));
 	}
 
+	serialize_towns(&mut w, model);
 	w.node_end();
 	w.node_end();
 
-	let index = MapIndex {
-		chunks,
-		min_x: model.min_x,
-		min_y: model.min_y,
-		max_x: model.max_x,
-		max_y: model.max_y,
-		teleports: model.teleports.clone(),
-		teleport_count: model.teleport_count,
-	};
+	let index = build_index(model, chunks, model.min_x, model.min_y, model.max_x, model.max_y, model.house_tile_count);
 	write_footer(&mut w, &index);
 	Ok(w.into_bytes())
 }
@@ -467,6 +507,67 @@ mod tests {
 		assert_eq!(model.floors.len(), model.available_floors.len(), "all floors loadable");
 
 		let _ = std::fs::remove_file(&tmp);
+	}
+
+	#[derive(Default)]
+	struct MetaCmp {
+		description: String,
+		spawn_file: String,
+		house_file: String,
+		otbm_version: u32,
+		towns: Vec<(u32, String, u16, u16, u8)>,
+	}
+
+	impl OtbmVisitor for MetaCmp {
+		fn header(&mut self, _w: u16, _h: u16) {}
+		fn progress(&mut self, _p: usize, _t: usize) {}
+		fn teleport(&mut self, _sx: u16, _sy: u16, _sz: u8, _dx: u16, _dy: u16, _dz: u8) {}
+		fn tile(&mut self, _x: u16, _y: u16, _z: u8, _items: &[u16]) {}
+		fn map_version(&mut self, otbm: u32, _major: u32, _minor: u32) {
+			self.otbm_version = otbm;
+		}
+		fn map_description(&mut self, text: String) {
+			self.description = text;
+		}
+		fn spawn_file(&mut self, name: String) {
+			self.spawn_file = name;
+		}
+		fn house_file(&mut self, name: String) {
+			self.house_file = name;
+		}
+		fn town(&mut self, id: u32, name: String, x: u16, y: u16, z: u8) {
+			self.towns.push((id, name, x, y, z));
+		}
+	}
+
+	#[test]
+	fn from_model_roundtrips_metadata_and_towns() {
+		use crate::map_model::Town;
+		let mut model = empty_model(100, 100);
+		model.description = "My Map".to_string();
+		model.spawn_file = "spawn.xml".to_string();
+		model.house_file = "house.xml".to_string();
+		model.otbm_version = 2;
+		model.towns = vec![
+			Town { id: 1, name: "Thais".to_string(), x: 32100, y: 32200, z: 7 },
+			Town { id: 2, name: "Carlin".to_string(), x: 32300, y: 31900, z: 6 },
+		];
+
+		let out = build_from_model(&model, &mut |_, _| {}).unwrap();
+		let mut meta = MetaCmp::default();
+		read_otbm(&out, &mut meta).unwrap();
+
+		assert_eq!(meta.description, "My Map");
+		assert_eq!(meta.spawn_file, "spawn.xml");
+		assert_eq!(meta.house_file, "house.xml");
+		assert_eq!(meta.otbm_version, 2);
+		assert_eq!(meta.towns.len(), 2);
+		assert_eq!(meta.towns[0], (1, "Thais".to_string(), 32100, 32200, 7));
+		assert_eq!(meta.towns[1], (2, "Carlin".to_string(), 32300, 31900, 6));
+
+		let idx = crate::otbm_footer::MapIndex::decode(&out).unwrap();
+		assert_eq!(idx.towns.len(), 2);
+		assert_eq!(idx.description, "My Map");
 	}
 
 	#[test]

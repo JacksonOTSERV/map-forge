@@ -7,8 +7,11 @@ interface ShortcutActions {
   handleSave: () => void;
   handleSaveAs: () => void;
   closeTab: (id: string) => void;
+  openEditTowns: () => void;
   openPreferences: () => void;
   toggleMinimap: () => void;
+  openMapProperties: () => void;
+  openMapStatistics: () => void;
 }
 
 export const useAppShortcuts = (actions: ShortcutActions) => {
@@ -36,6 +39,12 @@ export const useAppShortcuts = (actions: ShortcutActions) => {
       } else if (key === 'w' && a.activeId) {
         e.preventDefault();
         a.closeTab(a.activeId);
+      } else if (key === 't') {
+        e.preventDefault();
+        a.openEditTowns();
+      } else if (key === 'p') {
+        e.preventDefault();
+        a.openMapProperties();
       } else if (key === ',') {
         e.preventDefault();
         a.openPreferences();
@@ -53,6 +62,9 @@ export const useAppShortcuts = (actions: ShortcutActions) => {
       if (e.key.toLowerCase() === 'm') {
         e.preventDefault();
         ref.current.toggleMinimap();
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        ref.current.openMapStatistics();
       }
     };
     window.addEventListener('keydown', onKey);

@@ -25,7 +25,10 @@ interface AppMenuProps {
   onSave: () => void;
   onSaveAs: () => void;
   onCloseMap: () => void;
+  onEditTowns: () => void;
   onClearRecent: () => void;
+  onMapProperties: () => void;
+  onMapStatistics: () => void;
   onOpenPreferences: () => void;
   onOpenRecent: (path: string) => void;
 }
@@ -41,8 +44,11 @@ const AppMenu = ({
   onSave,
   onSaveAs,
   onCloseMap,
+  onEditTowns,
   onClearRecent,
   onOpenRecent,
+  onMapProperties,
+  onMapStatistics,
   onOpenPreferences
 }: AppMenuProps) => {
   const [value, setValue] = React.useState('');
@@ -180,6 +186,25 @@ const AppMenu = ({
               <MenubarItem onSelect={onOpenPreferences}>
                 Preferences...
                 <MenubarShortcut>Ctrl+,</MenubarShortcut>
+              </MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+
+          <MenubarMenu value="map">
+            <MenubarTrigger onMouseDown={stop}>Map</MenubarTrigger>
+            <MenubarContent onMouseDown={stop} onInteractOutside={keepOpenOnHamburger}>
+              <MenubarItem disabled={!hasActive} onSelect={onEditTowns}>
+                Edit Towns
+                <MenubarShortcut>Ctrl+T</MenubarShortcut>
+              </MenubarItem>
+              <MenubarSeparator />
+              <MenubarItem disabled={!hasActive} onSelect={onMapProperties}>
+                Properties...
+                <MenubarShortcut>Ctrl+P</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem disabled={!hasActive} onSelect={onMapStatistics}>
+                Statistics
+                <MenubarShortcut>F8</MenubarShortcut>
               </MenubarItem>
             </MenubarContent>
           </MenubarMenu>

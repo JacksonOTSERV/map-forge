@@ -12,7 +12,10 @@ interface ToolbarProps {
   onSave: () => void;
   onSaveAs: () => void;
   onCloseMap: () => void;
+  onEditTowns: () => void;
   onClearRecent: () => void;
+  onMapProperties: () => void;
+  onMapStatistics: () => void;
   onOpenPreferences: () => void;
   onOpenRecent: (path: string) => void;
 }
@@ -26,8 +29,11 @@ const Toolbar = ({
   onSave,
   onSaveAs,
   onCloseMap,
+  onEditTowns,
   onClearRecent,
   onOpenRecent,
+  onMapProperties,
+  onMapStatistics,
   onOpenPreferences
 }: ToolbarProps) => {
   const win = getCurrentWindow();
@@ -47,8 +53,11 @@ const Toolbar = ({
         onSaveAs={onSaveAs}
         hasActive={hasActive}
         onCloseMap={onCloseMap}
+        onEditTowns={onEditTowns}
         onOpenRecent={onOpenRecent}
         onClearRecent={onClearRecent}
+        onMapProperties={onMapProperties}
+        onMapStatistics={onMapStatistics}
         onOpenPreferences={onOpenPreferences}
       />
 

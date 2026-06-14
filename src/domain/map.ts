@@ -36,6 +36,46 @@ export interface PreviewTile {
   clientIds: Uint16Array;
 }
 
+export interface Town {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface MapProperties {
+  width: number;
+  height: number;
+  description: string;
+  spawnFile: string;
+  houseFile: string;
+  otbmVersion: number;
+  itemsMajor: number;
+  itemsMinor: number;
+  townCount: number;
+}
+
+export interface MapFloorStat {
+  z: number;
+  tileCount: number;
+}
+
+export interface MapStatistics {
+  width: number;
+  height: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  tileCount: number;
+  itemCount: number;
+  teleportCount: number;
+  townCount: number;
+  houseTileCount: number;
+  floors: MapFloorStat[];
+}
+
 export interface MinimapImage {
   minX: number;
   minY: number;

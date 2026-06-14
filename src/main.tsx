@@ -7,6 +7,7 @@ import { ToolId } from '~/domain/tools';
 import { cornerOf } from '~/usecase/dock';
 import Toolbar from '~/components/Toolbar';
 import MapTabs from '~/components/MapTabs';
+import MapTowns from '~/components/MapTowns';
 import MapCanvas from '~/components/MapCanvas';
 import Workspace from '~/components/Workspace';
 import { PANELS, PanelId } from '~/domain/dock';
@@ -14,6 +15,8 @@ import ToolsPanel from '~/components/ToolsPanel';
 import Preferences from '~/components/Preferences';
 import { MIN_ZOOM, MAX_ZOOM } from '~/usecase/zoom';
 import PalettePanel from '~/components/PalettePanel';
+import MapProperties from '~/components/MapProperties';
+import MapStatistics from '~/components/MapStatistics';
 import Minimap, { MinimapApi } from '~/components/Minimap';
 import { getSetting, setSetting } from '~/adapter/settings';
 import PanelDockMenu from '~/components/Dock/PanelDockMenu';
@@ -36,6 +39,9 @@ const App = () => {
   const [activeTool, setActiveTool] = React.useState<ToolId>('select');
   const [automagic, setAutomagic] = React.useState(true);
   const [minimapOpen, setMinimapOpen] = React.useState(false);
+  const [townsOpen, setTownsOpen] = React.useState(false);
+  const [mapPropsOpen, setMapPropsOpen] = React.useState(false);
+  const [statsOpen, setStatsOpen] = React.useState(false);
   const [preferencesOpen, setPreferencesOpen] = React.useState(false);
   const [copyPositionFormat, setCopyPositionFormat] = React.useState(defaultGeneralConfig.copyPositionFormat);
 
@@ -105,6 +111,23 @@ const App = () => {
     setReveal((r) => ({ category, serverId, nonce: (r?.nonce ?? 0) + 1 }));
   };
 
+  const openEditTowns = () => {
+    if (active) setTownsOpen(true);
+  };
+
+  const openMapProperties = () => {
+    if (active) setMapPropsOpen(true);
+  };
+
+  const openMapStatistics = () => {
+    if (active) setStatsOpen(true);
+  };
+
+  const gotoPosition = (x: number, y: number, z: number) => {
+    setFloorZ(z);
+    mapCenterRef.current?.(x, y);
+  };
+
   useAppShortcuts({
     activeId,
     handleNew,
@@ -113,6 +136,9 @@ const App = () => {
     handleSaveAs,
     closeTab,
     toggleMinimap,
+    openEditTowns,
+    openMapProperties,
+    openMapStatistics,
     openPreferences: () => setPreferencesOpen(true)
   });
 
@@ -221,7 +247,10 @@ const App = () => {
         hasActive={!!active}
         loading={busy || !assets}
         onClearRecent={clearRecent}
+        onEditTowns={openEditTowns}
         onSave={() => void handleSave()}
+        onMapProperties={openMapProperties}
+        onMapStatistics={openMapStatistics}
         onSaveAs={() => void handleSaveAs()}
         onOpenRecent={(path) => void openPath(path)}
         onCloseMap={() => activeId && closeTab(activeId)}
@@ -237,6 +266,12 @@ const App = () => {
           reloadGeneral();
         }}
       />
+
+      <MapTowns open={townsOpen} onGoto={gotoPosition} onOpenChange={setTownsOpen} mapId={active?.map.id ?? null} />
+
+      <MapProperties open={mapPropsOpen} mapId={active?.map.id ?? null} onOpenChange={setMapPropsOpen} />
+
+      <MapStatistics open={statsOpen} onOpenChange={setStatsOpen} mapId={active?.map.id ?? null} />
 
       <Workspace dock={dock} tabs={mapTabs} progress={progress} renderPanel={renderPanel}>
         {active && assets ? (

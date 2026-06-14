@@ -2,6 +2,8 @@ const OTBM_MAP_DATA: u8 = 2;
 const OTBM_TILE_AREA: u8 = 4;
 const OTBM_TILE: u8 = 5;
 const OTBM_ITEM: u8 = 6;
+const OTBM_TOWNS: u8 = 12;
+const OTBM_TOWN: u8 = 13;
 const OTBM_HOUSETILE: u8 = 14;
 
 const NODE_START: u8 = 0xFE;
@@ -10,6 +12,9 @@ const ESCAPE_CHAR: u8 = 0xFD;
 
 const OTBM_ATTR_TILE_FLAGS: u8 = 3;
 const OTBM_ATTR_ITEM: u8 = 9;
+
+const OTBM_ATTR_EXT_SPAWN_FILE: u8 = 11;
+const OTBM_ATTR_EXT_HOUSE_FILE: u8 = 13;
 
 const OTBM_ATTR_DESCRIPTION: u8 = 1;
 const OTBM_ATTR_ACTION_ID: u8 = 4;
@@ -35,6 +40,13 @@ pub trait OtbmVisitor {
 	fn map_attrs(&mut self, _start: usize, _end: usize) {}
 	fn tile_span(&mut self, _x: u16, _y: u16, _z: u8, _house: bool, _start: usize, _end: usize) {}
 	fn other_child(&mut self, _start: usize, _end: usize) {}
+
+	fn map_version(&mut self, _otbm: u32, _items_major: u32, _items_minor: u32) {}
+	fn map_description(&mut self, _text: String) {}
+	fn spawn_file(&mut self, _name: String) {}
+	fn house_file(&mut self, _name: String) {}
+	fn house_tile(&mut self, _x: u16, _y: u16, _z: u8) {}
+	fn town(&mut self, _id: u32, _name: String, _x: u16, _y: u16, _z: u8) {}
 }
 
 struct Reader<'a> {
@@ -68,6 +80,15 @@ impl<'a> Reader<'a> {
 
 	fn data_u32(&mut self) -> Option<u32> {
 		Some(u32::from_le_bytes([self.data_u8()?, self.data_u8()?, self.data_u8()?, self.data_u8()?]))
+	}
+
+	fn data_string(&mut self) -> Option<String> {
+		let len = self.data_u16()? as usize;
+		let mut bytes = Vec::with_capacity(len);
+		for _ in 0..len {
+			bytes.push(self.data_u8()?);
+		}
+		Some(String::from_utf8_lossy(&bytes).into_owned())
 	}
 
 	fn skip_data(&mut self, n: usize) -> bool {
@@ -113,10 +134,13 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 
 		self.r.data_u8().ok_or("otbm: missing root type")?;
 		let rp_start = self.r.pos;
-		self.r.data_u32().ok_or("otbm: missing version")?;
+		let otbm_version = self.r.data_u32().ok_or("otbm: missing version")?;
 		let width = self.r.data_u16().ok_or("otbm: missing width")?;
 		let height = self.r.data_u16().ok_or("otbm: missing height")?;
+		let items_major = self.r.data_u32().unwrap_or(0);
+		let items_minor = self.r.data_u32().unwrap_or(0);
 		self.v.header(width, height);
+		self.v.map_version(otbm_version, items_major, items_minor);
 		self.r.skip_to_structural();
 		self.v.root_payload(rp_start, self.r.pos);
 
@@ -132,6 +156,35 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 
 	fn map_data(&mut self) -> Result<(), String> {
 		let attrs_start = self.r.pos;
+		while let Some(attr) = self.r.data_u8() {
+			let ok = match attr {
+				OTBM_ATTR_DESCRIPTION => match self.r.data_string() {
+					Some(s) => {
+						self.v.map_description(s);
+						true
+					}
+					None => false,
+				},
+				OTBM_ATTR_EXT_SPAWN_FILE => match self.r.data_string() {
+					Some(s) => {
+						self.v.spawn_file(s);
+						true
+					}
+					None => false,
+				},
+				OTBM_ATTR_EXT_HOUSE_FILE => match self.r.data_string() {
+					Some(s) => {
+						self.v.house_file(s);
+						true
+					}
+					None => false,
+				},
+				_ => false,
+			};
+			if !ok {
+				break;
+			}
+		}
 		self.r.skip_to_structural();
 		self.v.map_attrs(attrs_start, self.r.pos);
 		self.each_child(|p| {
@@ -139,11 +192,29 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 			let kind = p.r.data_u8().ok_or("otbm: missing node type")?;
 			if kind == OTBM_TILE_AREA {
 				p.tile_area()
+			} else if kind == OTBM_TOWNS {
+				p.towns()
 			} else {
 				p.skip_subtree()?;
 				p.v.other_child(node_start, p.r.pos);
 				Ok(())
 			}
+		})
+	}
+
+	fn towns(&mut self) -> Result<(), String> {
+		self.r.skip_to_structural();
+		self.each_child(|p| {
+			let kind = p.r.data_u8().ok_or("otbm: missing node type")?;
+			if kind == OTBM_TOWN {
+				let id = p.r.data_u32().ok_or("otbm: town missing id")?;
+				let name = p.r.data_string().ok_or("otbm: town missing name")?;
+				let x = p.r.data_u16().ok_or("otbm: town missing temple x")?;
+				let y = p.r.data_u16().ok_or("otbm: town missing temple y")?;
+				let z = p.r.data_u8().ok_or("otbm: town missing temple z")?;
+				p.v.town(id, name, x, y, z);
+			}
+			p.skip_subtree()
 		})
 	}
 
@@ -160,6 +231,9 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 				let house = kind == OTBM_HOUSETILE;
 				let (x, y, z) = p.tile(house, base_x, base_y, base_z)?;
 				p.v.tile_span(x, y, z, house, node_start, p.r.pos);
+				if house {
+					p.v.house_tile(x, y, z);
+				}
 				Ok(())
 			} else {
 				p.skip_subtree()

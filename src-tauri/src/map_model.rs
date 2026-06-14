@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
 use tauri::ipc::Response;
 
 use crate::otb::OtbItems;
@@ -10,6 +11,16 @@ use crate::otbm_footer::MapIndex;
 use crate::{MapState, MinimapPaletteState, OtbState};
 
 pub(crate) const CHUNK: u32 = 32;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Town {
+	pub id: u32,
+	pub name: String,
+	pub x: u16,
+	pub y: u16,
+	pub z: u8,
+}
 
 pub(crate) const ACTION_PAINT: u8 = 1;
 pub(crate) const ACTION_ERASE: u8 = 2;
@@ -61,6 +72,14 @@ pub struct MapModel {
 	pub(crate) center_x: u16,
 	pub(crate) center_y: u16,
 	pub(crate) center_floor: u8,
+	pub(crate) description: String,
+	pub(crate) spawn_file: String,
+	pub(crate) house_file: String,
+	pub(crate) otbm_version: u32,
+	pub(crate) items_major: u32,
+	pub(crate) items_minor: u32,
+	pub(crate) towns: Vec<Town>,
+	pub(crate) house_tile_count: u32,
 	history: History,
 }
 
@@ -209,6 +228,14 @@ pub(crate) fn build_map_model(
 		center_x,
 		center_y,
 		center_floor,
+		description: String::new(),
+		spawn_file: String::new(),
+		house_file: String::new(),
+		otbm_version: 0,
+		items_major: 0,
+		items_minor: 0,
+		towns: Vec::new(),
+		house_tile_count: 0,
 		history: History::default(),
 	}
 }
@@ -626,6 +653,14 @@ pub(crate) fn empty_model(width: u16, height: u16) -> MapModel {
 		center_x: width / 2,
 		center_y: height / 2,
 		center_floor: 7,
+		description: String::new(),
+		spawn_file: String::new(),
+		house_file: String::new(),
+		otbm_version: 2,
+		items_major: 3,
+		items_minor: 860,
+		towns: Vec::new(),
+		house_tile_count: 0,
 		history: History::default(),
 	}
 }
@@ -676,6 +711,14 @@ pub(crate) fn lazy_model(width: u16, height: u16, idx: &MapIndex, source: std::p
 		center_x,
 		center_y,
 		center_floor,
+		description: idx.description.clone(),
+		spawn_file: idx.spawn_file.clone(),
+		house_file: idx.house_file.clone(),
+		otbm_version: idx.otbm_version,
+		items_major: idx.items_major,
+		items_minor: idx.items_minor,
+		towns: idx.towns.clone(),
+		house_tile_count: idx.house_tile_count,
 		history: History::default(),
 	}
 }
