@@ -1,6 +1,6 @@
 import React from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Menu, FilePlus, FolderOpen } from 'lucide-react';
+import { Menu, Save, FilePlus, FolderOpen } from 'lucide-react';
 
 import { Button } from '~/components/commons/ui/button';
 import {
@@ -22,6 +22,8 @@ interface AppMenuProps {
   recent: string[];
   onNew: () => void;
   onOpen: () => void;
+  onSave: () => void;
+  onSaveAs: () => void;
   onCloseMap: () => void;
   onClearRecent: () => void;
   onOpenPreferences: () => void;
@@ -36,6 +38,8 @@ const AppMenu = ({
   recent,
   onNew,
   onOpen,
+  onSave,
+  onSaveAs,
   onCloseMap,
   onClearRecent,
   onOpenRecent,
@@ -103,6 +107,17 @@ const AppMenu = ({
             <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
             Open Map
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onSave}
+            onMouseDown={stop}
+            disabled={loading || !hasActive}
+            className="h-6 px-2 text-xs font-medium"
+          >
+            <Save className="mr-1.5 h-3.5 w-3.5" />
+            Save
+          </Button>
         </>
       )}
 
@@ -139,6 +154,16 @@ const AppMenu = ({
                   )}
                 </MenubarSubContent>
               </MenubarSub>
+              <MenubarSeparator />
+              <MenubarItem onSelect={onSave} disabled={!hasActive}>
+                <Save className="mr-2 h-3.5 w-3.5" />
+                Save
+                <MenubarShortcut>Ctrl+S</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem onSelect={onSaveAs} disabled={!hasActive}>
+                Save As...
+                <MenubarShortcut>Ctrl+Shift+S</MenubarShortcut>
+              </MenubarItem>
               <MenubarSeparator />
               <MenubarItem disabled={!hasActive} onSelect={onCloseMap}>
                 Close Map

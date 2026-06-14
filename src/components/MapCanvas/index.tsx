@@ -32,7 +32,7 @@ const MapCanvas = (props: MapCanvasProps) => {
   const inputs = React.useRef<MapCanvasProps>(props);
   inputs.current = props;
 
-  const camera = useMapCamera(canvasRef, map, zoom, onZoomChange);
+  const camera = useMapCamera(canvasRef, map, zoom, onZoomChange, props.initialCenter, props.onViewChange);
   const scene = useMapScene();
   const atlas = useSpriteAtlas(gl);
   const tiles = useChunkTiles();

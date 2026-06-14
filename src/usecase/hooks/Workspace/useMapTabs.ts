@@ -1,10 +1,11 @@
 import React from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 import { MapMeta } from '~/domain/map';
 import { snapZoom } from '~/usecase/zoom';
-import { newOtbm, openOtbm, closeMap } from '~/adapter/map';
+import { getMapView, setMapView } from '~/adapter/mapViews';
 import { LoadedAssets, DEFAULT_DATA_DIR } from '~/adapter/assets';
+import { newOtbm, openOtbm, closeMap, saveOtbm } from '~/adapter/map';
 import { addRecentMap, loadRecentMaps, clearRecentMaps } from '~/adapter/recentMaps';
 
 const NEW_MAP_WIDTH = 1024;
@@ -18,6 +19,8 @@ export interface MapTab {
   map: MapMeta;
   floorZ: number;
   zoom: number;
+  center: { x: number; y: number };
+  path?: string;
 }
 
 interface MapTabsActions {
@@ -32,14 +35,18 @@ export interface MapTabsApi {
   activeId: string | null;
   busy: boolean;
   progress: { value: number; label: string } | null;
+  saving: { value: number; label: string } | null;
   setActiveId: (id: string | null) => void;
   closeTab: (id: string) => void;
   openPath: (path: string) => Promise<void>;
   handleOpen: () => Promise<void>;
   handleNew: () => Promise<void>;
+  handleSave: () => Promise<void>;
+  handleSaveAs: () => Promise<void>;
   clearRecent: () => void;
   setFloorZ: (z: number) => void;
   setZoom: (z: number) => void;
+  setView: (cx: number, cy: number) => void;
 }
 
 export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }: MapTabsActions): MapTabsApi => {
@@ -48,8 +55,10 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }:
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState<{ value: number; label: string } | null>(null);
+  const [saving, setSaving] = React.useState<{ value: number; label: string } | null>(null);
 
   const active = tabs.find((t) => t.id === activeId) ?? null;
+  const persistTimer = React.useRef(0);
 
   React.useEffect(() => {
     void loadRecentMaps().then(setRecent);
@@ -59,15 +68,40 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }:
     void clearRecentMaps().then(() => setRecent([]));
   };
 
+  const persist = (t: MapTab) => {
+    if (!t.path) return;
+    const path = t.path;
+    const payload = { cx: t.center.x, cy: t.center.y, zoom: t.zoom, floor: t.floorZ };
+    if (persistTimer.current) window.clearTimeout(persistTimer.current);
+    persistTimer.current = window.setTimeout(() => void setMapView(path, payload), 400);
+  };
+
   const updateActive = (patch: Partial<MapTab>) =>
-    setTabs((prev) => prev.map((t) => (t.id === activeId ? { ...t, ...patch } : t)));
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id !== activeId) return t;
+        const next = { ...t, ...patch };
+        persist(next);
+        return next;
+      })
+    );
 
   const setFloorZ = (z: number) => updateActive({ floorZ: z });
   const setZoom = (z: number) => updateActive({ zoom: snapZoom(z) });
+  const setView = (cx: number, cy: number) => updateActive({ center: { x: cx, y: cy } });
 
-  const addTab = (title: string, data: MapMeta) => {
+  interface InitialView {
+    center: { x: number; y: number };
+    zoom: number;
+    floor: number;
+  }
+
+  const addTab = (title: string, data: MapMeta, path?: string, initial?: InitialView) => {
     const id = `tab-${++tabSeq}`;
-    setTabs((prev) => [...prev, { id, title, map: data, floorZ: 7, zoom: 1 }]);
+    const center = initial?.center ?? { x: data.center.x, y: data.center.y };
+    const floorZ = initial?.floor ?? data.center.floor;
+    const zoom = initial?.zoom ?? 1;
+    setTabs((prev) => [...prev, { id, title, map: data, floorZ, zoom, center, path }]);
     setActiveId(id);
   };
 
@@ -90,7 +124,11 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }:
         setProgress({ value, label: 'Reading map...' });
       });
       const name = path.split(/[\\/]/).pop() ?? 'map.otbm';
-      addTab(name, data);
+      const saved = await getMapView(path);
+      const initial = saved
+        ? { center: { x: saved.cx, y: saved.cy }, zoom: saved.zoom, floor: saved.floor }
+        : { center: { x: data.center.x, y: data.center.y }, zoom: 1, floor: data.center.floor };
+      addTab(name, data, path, initial);
       const dims = `${data.bounds.minX}..${data.bounds.maxX} x ${data.bounds.minY}..${data.bounds.maxY}`;
       setStatus(`${name} - ${data.tileCount} tiles - ${dims} - ${data.width}x${data.height}`);
       void addRecentMap(path).then(setRecent);
@@ -135,6 +173,42 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }:
     }
   };
 
+  const saveToPath = async (tab: MapTab, path: string) => {
+    setBusy(true);
+    setSaving({ value: 0, label: 'Preparing...' });
+    setStatus('Saving map...');
+    try {
+      await saveOtbm(tab.map.id, path, (value, label) => setSaving({ value, label }));
+      const name = path.split(/[\\/]/).pop() ?? tab.title;
+      updateActive({ path, title: name });
+      setStatus(`Saved ${name}`);
+      void addRecentMap(path).then(setRecent);
+    } catch (e) {
+      setError(`Failed to save map: ${e}`);
+      setStatus('Map save failed');
+    } finally {
+      setBusy(false);
+      setSaving(null);
+    }
+  };
+
+  const handleSaveAs = async () => {
+    if (!active) return;
+    const selected = await save({
+      defaultPath: active.path ?? `${active.title.replace(/\.otbm$/i, '')}.otbm`,
+      title: 'Save OTBM map',
+      filters: [{ name: 'OTBM Maps', extensions: ['otbm'] }]
+    });
+    if (!selected) return;
+    await saveToPath(active, selected);
+  };
+
+  const handleSave = async () => {
+    if (!active) return;
+    if (active.path) await saveToPath(active, active.path);
+    else await handleSaveAs();
+  };
+
   return {
     tabs,
     recent,
@@ -142,13 +216,17 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }:
     activeId,
     busy,
     progress,
+    saving,
     setActiveId,
     closeTab,
     openPath,
     handleOpen,
     handleNew,
+    handleSave,
+    handleSaveAs,
     clearRecent,
     setFloorZ,
-    setZoom
+    setZoom,
+    setView
   };
 };

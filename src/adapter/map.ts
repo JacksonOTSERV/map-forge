@@ -51,7 +51,23 @@ function decodeMeta(buffer: Uint8Array): MapMeta {
     teleports.set(`${sx},${sy},${sz}`, { x: dx, y: dy, z: dz });
   }
 
-  return { id, width, height, tileCount, bounds: { minX, minY, maxX, maxY }, teleports, floors };
+  const centerX = view.getUint16(o, true);
+  o += 2;
+  const centerY = view.getUint16(o, true);
+  o += 2;
+  const centerFloor = view.getUint8(o);
+  o += 1;
+
+  return {
+    id,
+    width,
+    height,
+    tileCount,
+    bounds: { minX, minY, maxX, maxY },
+    teleports,
+    floors,
+    center: { x: centerX, y: centerY, floor: centerFloor }
+  };
 }
 
 export async function openOtbm(path: string, onProgress?: OtbmProgress): Promise<MapMeta> {
@@ -74,6 +90,18 @@ export async function newOtbm(width: number, height: number): Promise<MapMeta> {
 
 export async function closeMap(mapId: number): Promise<void> {
   await invoke('close_map', { mapId });
+}
+
+export async function saveOtbm(mapId: number, path: string, onProgress?: (value: number, label: string) => void): Promise<void> {
+  let unlisten: UnlistenFn | undefined;
+  if (onProgress) {
+    unlisten = await listen<[number, string]>('save_progress', (e) => onProgress(e.payload[0], e.payload[1]));
+  }
+  try {
+    await invoke('save_otbm', { mapId, path });
+  } finally {
+    unlisten?.();
+  }
 }
 
 export async function paintTiles(

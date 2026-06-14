@@ -10,6 +10,8 @@ mod dat_reader;
 mod nodefile;
 mod otb;
 mod otbm;
+mod otbm_footer;
+mod otbm_write;
 use otb::OtbItems;
 
 mod settings;
@@ -22,6 +24,7 @@ mod commands;
 mod map_edit;
 mod map_load;
 mod map_model;
+mod map_save;
 
 use commands::{
 	all_server_ids, close_spr_file, load_materials, load_otb, map_client_ids, open_spr_file, parse_dat_file_bin, read_file,
@@ -32,11 +35,13 @@ use map_edit::{
 	copy_selection, delete_item, delete_selection, erase_area, move_item, paint_tiles, paste_selection, preview_paint, CopyBuffer,
 };
 use map_load::open_otbm;
-use map_model::{close_map, get_map_chunks, get_minimap, new_otbm, redo_edit, undo_edit, MapStore};
+use map_model::{close_map, get_map_chunks, get_minimap, new_otbm, redo_edit, set_minimap_palette, undo_edit, MapStore};
+use map_save::save_otbm;
 
 pub(crate) type OtbState = Arc<Mutex<Option<OtbItems>>>;
 pub(crate) type MaterialsState = Arc<Mutex<Option<Materials>>>;
 pub(crate) type MapState = Arc<Mutex<MapStore>>;
+pub(crate) type MinimapPaletteState = Arc<Mutex<Vec<u8>>>;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct PlaceFlags {
@@ -55,6 +60,7 @@ pub fn run() {
 	let materials_store: MaterialsState = Arc::new(Mutex::new(None));
 	let placement_store: PlacementState = Arc::new(Mutex::new(HashMap::new()));
 	let copy_buffer: CopyBufferState = Arc::new(Mutex::new(None));
+	let minimap_palette: MinimapPaletteState = Arc::new(Mutex::new(Vec::new()));
 
 	tauri::Builder::default()
 		.plugin(tauri_plugin_dialog::init())
@@ -64,6 +70,7 @@ pub fn run() {
 		.manage(materials_store)
 		.manage(placement_store)
 		.manage(copy_buffer)
+		.manage(minimap_palette)
 		.invoke_handler(tauri::generate_handler![
 			read_file,
 			read_file_text,
@@ -79,6 +86,7 @@ pub fn run() {
 			map_client_ids,
 			all_server_ids,
 			open_otbm,
+			save_otbm,
 			new_otbm,
 			close_map,
 			paint_tiles,
@@ -93,6 +101,7 @@ pub fn run() {
 			redo_edit,
 			get_map_chunks,
 			get_minimap,
+			set_minimap_palette,
 			set_window_acrylic,
 			read_settings,
 			write_settings

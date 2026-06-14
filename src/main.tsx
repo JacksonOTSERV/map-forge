@@ -1,5 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { MapView } from '~/domain/map';
 import { ToolId } from '~/domain/tools';
@@ -17,6 +18,7 @@ import Minimap, { MinimapApi } from '~/components/Minimap';
 import { getSetting, setSetting } from '~/adapter/settings';
 import PanelDockMenu from '~/components/Dock/PanelDockMenu';
 import { useDock } from '~/usecase/hooks/Workspace/useDock';
+import SaveProgressModal from '~/components/SaveProgressModal';
 import { useAssets } from '~/usecase/hooks/Workspace/useAssets';
 import StatusBar, { StatusBarApi } from '~/components/StatusBar';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
@@ -37,6 +39,7 @@ const App = () => {
   const [preferencesOpen, setPreferencesOpen] = React.useState(false);
   const [copyPositionFormat, setCopyPositionFormat] = React.useState(defaultGeneralConfig.copyPositionFormat);
 
+  const savingRef = React.useRef(false);
   const mapViewRef = React.useRef<MapView | null>(null);
   const statusApiRef = React.useRef<StatusBarApi | null>(null);
   const minimapApiRef = React.useRef<MinimapApi | null>(null);
@@ -45,7 +48,7 @@ const App = () => {
   const handleHover = React.useCallback((info: HoverInfo | null) => statusApiRef.current?.setHover(info), []);
   const handleSelect = React.useCallback((item: HoverItem | null) => statusApiRef.current?.setSelectedItem(item), []);
 
-  const { assets, palette, status, error, minimapColors, setStatus, setError } = useAssets();
+  const { assets, palette, status, error, minimapReady, setStatus, setError } = useAssets();
   const {
     tabs,
     recent,
@@ -53,18 +56,22 @@ const App = () => {
     activeId,
     busy,
     progress,
+    saving,
     setActiveId,
     closeTab,
     openPath,
     handleOpen,
     handleNew,
+    handleSave,
+    handleSaveAs,
     clearRecent,
     setFloorZ,
-    setZoom
+    setZoom,
+    setView
   } = useMapTabs(assets, { setStatus, setError });
 
   const isContentReady = (id: PanelId) => {
-    if (id === 'minimap') return minimapOpen && !!assets && !!active && !!minimapColors;
+    if (id === 'minimap') return minimapOpen && !!assets && !!active && minimapReady;
     return id === 'tools' || !!(assets && palette);
   };
 
@@ -102,10 +109,23 @@ const App = () => {
     activeId,
     handleNew,
     handleOpen,
+    handleSave,
+    handleSaveAs,
     closeTab,
     toggleMinimap,
     openPreferences: () => setPreferencesOpen(true)
   });
+
+  savingRef.current = !!saving;
+
+  React.useEffect(() => {
+    const unlisten = getCurrentWindow().onCloseRequested((event) => {
+      if (savingRef.current) event.preventDefault();
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
 
   React.useEffect(() => {
     void getSetting('automagic', true).then(setAutomagic);
@@ -162,7 +182,7 @@ const App = () => {
         />
       );
     }
-    if (id === 'minimap' && assets && active && minimapColors) {
+    if (id === 'minimap' && assets && active && minimapReady) {
       return (
         <Minimap
           key={active.id}
@@ -170,10 +190,10 @@ const App = () => {
           viewRef={mapViewRef}
           mapId={active.map.id}
           floorZ={active.floorZ}
-          colors={minimapColors}
           apiRef={minimapApiRef}
           onClose={closeMinimap}
           centerRef={mapCenterRef}
+          paletteReady={minimapReady}
           headerMenu={panelMenu('minimap')}
         />
       );
@@ -201,6 +221,8 @@ const App = () => {
         hasActive={!!active}
         loading={busy || !assets}
         onClearRecent={clearRecent}
+        onSave={() => void handleSave()}
+        onSaveAs={() => void handleSaveAs()}
         onOpenRecent={(path) => void openPath(path)}
         onCloseMap={() => activeId && closeTab(activeId)}
         onOpenPreferences={() => setPreferencesOpen(true)}
@@ -221,6 +243,7 @@ const App = () => {
           <MapCanvas
             key={active.id}
             map={active.map}
+            paused={!!saving}
             zoom={active.zoom}
             minZoom={MIN_ZOOM}
             maxZoom={MAX_ZOOM}
@@ -230,6 +253,7 @@ const App = () => {
             automagic={automagic}
             floorZ={active.floorZ}
             onZoomChange={setZoom}
+            onViewChange={setView}
             activeTool={activeTool}
             onSelect={handleSelect}
             sprPath={assets.sprPath}
@@ -239,6 +263,7 @@ const App = () => {
             onSelectBrush={selectBrush}
             onToolChange={setActiveTool}
             itemNames={assets.itemNames}
+            initialCenter={active.center}
             onRevealBrush={revealInPalette}
             transparency={assets.transparency}
             copyPositionFormat={copyPositionFormat}
@@ -261,6 +286,8 @@ const App = () => {
         onFloorChange={setFloorZ}
         floorZ={active?.floorZ ?? 7}
       />
+
+      {saving && <SaveProgressModal value={saving.value} label={saving.label} />}
     </div>
   );
 };

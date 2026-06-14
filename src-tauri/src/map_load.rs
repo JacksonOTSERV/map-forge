@@ -1,12 +1,42 @@
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 
 use tauri::ipc::Response;
 use tauri::Emitter;
 
-use crate::map_model::{build_map_model, serialize_meta, store_map, MapModel};
+use crate::map_model::{build_map_model, lazy_model, serialize_meta, store_map, MapModel};
 use crate::otb::OtbItems;
-use crate::otbm::{read_otbm, OtbmVisitor};
+use crate::otbm::{read_otbm, read_otbm_header, OtbmVisitor};
+use crate::otbm_footer::MapIndex;
 use crate::{MapState, OtbState};
+
+fn read_head(path: &std::path::Path, max: usize) -> Result<Vec<u8>, String> {
+	let mut f = std::fs::File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+	let len = f.metadata().map(|m| m.len() as usize).unwrap_or(max).min(max);
+	let mut buf = vec![0u8; len];
+	f.read_exact(&mut buf).map_err(|e| format!("read error: {}", e))?;
+	Ok(buf)
+}
+
+fn read_footer_index(path: &std::path::Path) -> Option<MapIndex> {
+	let mut f = std::fs::File::open(path).ok()?;
+	let size = f.metadata().ok()?.len();
+	if size < 8 {
+		return None;
+	}
+	f.seek(SeekFrom::End(-8)).ok()?;
+	let mut tail8 = [0u8; 8];
+	f.read_exact(&mut tail8).ok()?;
+	let body_len = u32::from_le_bytes([tail8[0], tail8[1], tail8[2], tail8[3]]) as u64;
+	let total = body_len.checked_add(8)?;
+	if total > size {
+		return None;
+	}
+	f.seek(SeekFrom::End(-(total as i64))).ok()?;
+	let mut tail = vec![0u8; total as usize];
+	f.read_exact(&mut tail).ok()?;
+	MapIndex::decode(&tail)
+}
 
 pub(crate) struct OtbmCollector<'a> {
 	pub(crate) otb: &'a OtbItems,
@@ -100,7 +130,15 @@ pub async fn open_otbm(
 	map_state: tauri::State<'_, MapState>,
 ) -> Result<Response, String> {
 	let otb = otb_state.inner().clone();
+	let source_path = std::path::PathBuf::from(&path);
 	let model = tauri::async_runtime::spawn_blocking(move || -> Result<MapModel, String> {
+		if let Some(idx) = read_footer_index(&source_path) {
+			let head = read_head(&source_path, 4096)?;
+			let (width, height) = read_otbm_header(&head)?;
+			let _ = window.emit("otbm_progress", 1.0_f64);
+			return Ok(lazy_model(width, height, &idx, source_path));
+		}
+
 		let bytes = fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
 		let guard = otb.lock().map_err(|e| format!("Lock error: {}", e))?;
 		let otb = guard.as_ref().ok_or("items.otb not loaded - call load_otb first")?;
@@ -122,7 +160,9 @@ pub async fn open_otbm(
 			last_step: -1,
 		};
 		read_otbm(&bytes, &mut collector)?;
-		Ok(collector.finish())
+		let mut model = collector.finish();
+		model.source_path = Some(source_path);
+		Ok(model)
 	})
 	.await
 	.map_err(|e| format!("otbm task error: {}", e))??;

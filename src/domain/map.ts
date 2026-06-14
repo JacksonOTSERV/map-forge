@@ -12,6 +12,14 @@ export interface MapMeta {
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
   teleports: Map<string, Position>;
   floors: number[];
+  center: { x: number; y: number; floor: number };
+}
+
+export interface StoredMapView {
+  cx: number;
+  cy: number;
+  zoom: number;
+  floor: number;
 }
 
 export interface ChunkTiles {

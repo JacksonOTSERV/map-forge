@@ -73,6 +73,9 @@ export interface MapCanvasProps {
   automagic: boolean;
   copyPositionFormat: string;
   onEdit?: (z: number) => void;
+  paused?: boolean;
+  initialCenter: { x: number; y: number };
+  onViewChange?: (cx: number, cy: number) => void;
   viewRef?: React.MutableRefObject<MapView | null>;
   centerRef?: React.MutableRefObject<((x: number, y: number) => void) | null>;
 }

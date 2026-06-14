@@ -20,7 +20,9 @@ export function useMapCamera(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   map: MapMeta,
   zoom: number,
-  onZoomChange: (zoom: number) => void
+  onZoomChange: (zoom: number) => void,
+  initialCenter: { x: number; y: number },
+  onViewChange?: (cx: number, cy: number) => void
 ): MapCamera {
   const ref = React.useRef<Camera>({ x: 0, y: 0 });
   const zoomRef = React.useRef(zoom);
@@ -31,13 +33,33 @@ export function useMapCamera(
   const onZoomChangeRef = React.useRef(onZoomChange);
   onZoomChangeRef.current = onZoomChange;
 
+  const onViewChangeRef = React.useRef(onViewChange);
+  onViewChangeRef.current = onViewChange;
+
+  const initialRef = React.useRef(initialCenter);
+  const saveTimer = React.useRef(0);
+
+  const scheduleSave = React.useCallback(() => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const z = zoomRef.current;
+      const cx = (ref.current.x + canvas.clientWidth / (2 * z)) / TILE - 0.5;
+      const cy = (ref.current.y + canvas.clientHeight / (2 * z)) / TILE - 0.5;
+      onViewChangeRef.current?.(cx, cy);
+    }, 500);
+  }, [canvasRef]);
+
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const cx = ((map.bounds.minX + map.bounds.maxX) / 2) * TILE;
-    const cy = ((map.bounds.minY + map.bounds.maxY) / 2) * TILE;
-    ref.current = { x: cx - canvas.clientWidth / (2 * zoom), y: cy - canvas.clientHeight / (2 * zoom) };
-  }, [map]);
+    const z = zoomRef.current;
+    ref.current = {
+      x: (initialRef.current.x + 0.5) * TILE - canvas.clientWidth / (2 * z),
+      y: (initialRef.current.y + 0.5) * TILE - canvas.clientHeight / (2 * z)
+    };
+  }, [map, canvasRef]);
 
   React.useEffect(() => {
     if (zoom === appliedZoom.current) return;
@@ -72,10 +94,11 @@ export function useMapCamera(
       zoomRef.current = newZoom;
       appliedZoom.current = newZoom;
       onZoomChangeRef.current(newZoom);
+      scheduleSave();
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [canvasRef, scheduleSave]);
 
   React.useEffect(() => {
     const dirs: Record<string, [number, number]> = {
@@ -105,6 +128,7 @@ export function useMapCamera(
       if (dx || dy) {
         const z = zoomRef.current;
         ref.current = { x: ref.current.x + (dx * speed * dt) / z, y: ref.current.y + (dy * speed * dt) / z };
+        scheduleSave();
       }
       raf = requestAnimationFrame(step);
     };
@@ -134,7 +158,7 @@ export function useMapCamera(
       window.removeEventListener('blur', onBlur);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [scheduleSave]);
 
   function beginPan(e: React.MouseEvent) {
     drag.current = { startX: e.clientX, startY: e.clientY, camX: ref.current.x, camY: ref.current.y };
@@ -154,6 +178,7 @@ export function useMapCamera(
   function endPan() {
     drag.current = null;
     setPanning(false);
+    scheduleSave();
   }
 
   function tileUnderCursor(e: React.MouseEvent, floorZ: number): Position {
@@ -173,6 +198,7 @@ export function useMapCamera(
       x: (pos.x + 0.5) * TILE - canvas.clientWidth / (2 * z),
       y: (pos.y + 0.5) * TILE - canvas.clientHeight / (2 * z)
     };
+    scheduleSave();
   }
 
   return { ref, zoomRef, panning, beginPan, panMove, endPan, tileUnderCursor, centerOn };

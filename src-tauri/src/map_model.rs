@@ -1,9 +1,13 @@
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Seek, SeekFrom};
 use std::time::{Duration, Instant};
 
 use tauri::ipc::Response;
 
-use crate::MapState;
+use crate::otb::OtbItems;
+use crate::otbm::{read_otbm_floor, OtbmVisitor};
+use crate::otbm_footer::MapIndex;
+use crate::{MapState, MinimapPaletteState, OtbState};
 
 pub(crate) const CHUNK: u32 = 32;
 
@@ -47,7 +51,41 @@ pub struct MapModel {
 	pub(crate) teleports: Vec<u8>,
 	pub(crate) teleport_count: u32,
 	pub(crate) edits: HashMap<u8, HashMap<u32, HashMap<u32, Vec<(u16, u16)>>>>,
+	pub(crate) source_path: Option<std::path::PathBuf>,
+	pub(crate) available_floors: Vec<u8>,
+	pub(crate) total_tiles: u32,
+	pub(crate) eager: bool,
+	pub(crate) loaded_chunks: HashSet<u64>,
+	pub(crate) chunk_ranges: HashMap<u64, (u64, u64)>,
+	pub(crate) floor_chunks: HashMap<u8, Vec<u32>>,
+	pub(crate) center_x: u16,
+	pub(crate) center_y: u16,
+	pub(crate) center_floor: u8,
 	history: History,
+}
+
+fn weighted_center<I: Iterator<Item = (u8, u32, u32, u32)>>(chunks: I, fallback: (u16, u16)) -> (u16, u16, u8) {
+	let mut acc: HashMap<u8, (u64, u64, u64)> = HashMap::new();
+	for (z, cx, cy, count) in chunks {
+		let c = count as u64;
+		if c == 0 {
+			continue;
+		}
+		let tx = (cx * CHUNK + CHUNK / 2) as u64;
+		let ty = (cy * CHUNK + CHUNK / 2) as u64;
+		let e = acc.entry(z).or_default();
+		e.0 += tx * c;
+		e.1 += ty * c;
+		e.2 += c;
+	}
+	match acc.iter().max_by_key(|(_, v)| v.2) {
+		Some((&z, &(sx, sy, t))) if t > 0 => ((sx / t) as u16, (sy / t) as u16, z),
+		_ => (fallback.0, fallback.1, 7),
+	}
+}
+
+pub(crate) fn ckey(z: u8, chunk: u32) -> u64 {
+	((z as u64) << 32) | chunk as u64
 }
 
 #[derive(Default)]
@@ -134,6 +172,17 @@ pub(crate) fn build_map_model(
 		floors.entry(z).or_default().insert((cx << 16) | cy, (start, i as u32));
 	}
 
+	let mut available_floors: Vec<u8> = floors.keys().copied().collect();
+	available_floors.sort_unstable();
+	let total_tiles = tile_x.len() as u32;
+
+	let center_chunks = floors.iter().flat_map(|(&z, cm)| {
+		cm.iter()
+			.map(move |(&key, &(start, end))| (z, key >> 16, key & 0xFFFF, end - start))
+	});
+	let (center_x, center_y, center_floor) =
+		weighted_center(center_chunks, ((min_x / 2).wrapping_add(max_x / 2), (min_y / 2).wrapping_add(max_y / 2)));
+
 	MapModel {
 		width,
 		height,
@@ -150,6 +199,16 @@ pub(crate) fn build_map_model(
 		teleports,
 		teleport_count,
 		edits: HashMap::new(),
+		source_path: None,
+		available_floors,
+		total_tiles,
+		eager: true,
+		loaded_chunks: HashSet::new(),
+		chunk_ranges: HashMap::new(),
+		floor_chunks: HashMap::new(),
+		center_x,
+		center_y,
+		center_floor,
 		history: History::default(),
 	}
 }
@@ -162,13 +221,14 @@ pub(crate) fn serialize_meta(m: &MapModel) -> Vec<u8> {
 	push_u16(&mut out, m.min_y);
 	push_u16(&mut out, m.max_x);
 	push_u16(&mut out, m.max_y);
-	push_u32(&mut out, m.tile_x.len() as u32);
-	let mut floors: Vec<u8> = m.floors.keys().copied().collect();
-	floors.sort_unstable();
-	out.push(floors.len() as u8);
-	out.extend_from_slice(&floors);
+	push_u32(&mut out, m.total_tiles);
+	out.push(m.available_floors.len() as u8);
+	out.extend_from_slice(&m.available_floors);
 	push_u32(&mut out, m.teleport_count);
 	out.extend_from_slice(&m.teleports);
+	push_u16(&mut out, m.center_x);
+	push_u16(&mut out, m.center_y);
+	out.push(m.center_floor);
 	out
 }
 
@@ -226,90 +286,6 @@ pub(crate) fn serialize_chunks(m: &MapModel, z: u8, keys: &[u32]) -> Vec<u8> {
 	out
 }
 
-pub(crate) fn serialize_minimap(m: &MapModel, z: u8, colors: &[u8]) -> Vec<u8> {
-	let pick = |clients: &[u16]| -> u8 {
-		for &c in clients.iter().rev() {
-			let ci = c as usize;
-			if ci < colors.len() && colors[ci] != 0 {
-				return colors[ci];
-			}
-		}
-		0
-	};
-
-	let mut tiles: Vec<(u16, u16, u8)> = Vec::new();
-	let efloor = m.edits.get(&z);
-	if let Some(floor) = m.floors.get(&z) {
-		for (&k, &(start, end)) in floor {
-			let edits_chunk = efloor.and_then(|c| c.get(&k));
-			for t in start as usize..end as usize {
-				let x = m.tile_x[t];
-				let y = m.tile_y[t];
-				let pos = (x as u32) << 16 | y as u32;
-				if edits_chunk.is_some_and(|c| c.contains_key(&pos)) {
-					continue;
-				}
-				let s = m.item_off[t] as usize;
-				let e = m.item_off[t + 1] as usize;
-				let col = pick(&m.client_ids[s..e]);
-				if col != 0 {
-					tiles.push((x, y, col));
-				}
-			}
-		}
-	}
-	if let Some(chunks) = efloor {
-		for chunk in chunks.values() {
-			for (&pos, stack) in chunk {
-				if stack.is_empty() {
-					continue;
-				}
-				let clients: Vec<u16> = stack.iter().map(|&(c, _)| c).collect();
-				let col = pick(&clients);
-				if col != 0 {
-					tiles.push(((pos >> 16) as u16, (pos & 0xFFFF) as u16, col));
-				}
-			}
-		}
-	}
-
-	let mut out = Vec::new();
-	if tiles.is_empty() {
-		push_u16(&mut out, 0);
-		push_u16(&mut out, 0);
-		push_u16(&mut out, 0);
-		push_u16(&mut out, 0);
-		return out;
-	}
-
-	let mut min_x = u16::MAX;
-	let mut min_y = u16::MAX;
-	let mut max_x = 0u16;
-	let mut max_y = 0u16;
-	for &(x, y, _) in &tiles {
-		min_x = min_x.min(x);
-		min_y = min_y.min(y);
-		max_x = max_x.max(x);
-		max_y = max_y.max(y);
-	}
-	let w = (max_x - min_x + 1) as usize;
-	let h = (max_y - min_y + 1) as usize;
-	let mut grid = vec![0u8; w * h];
-	for &(x, y, col) in &tiles {
-		let gx = (x - min_x) as usize;
-		let gy = (y - min_y) as usize;
-		grid[gy * w + gx] = col;
-	}
-
-	out.reserve(8 + grid.len());
-	push_u16(&mut out, min_x);
-	push_u16(&mut out, min_y);
-	push_u16(&mut out, w as u16);
-	push_u16(&mut out, h as u16);
-	out.extend_from_slice(&grid);
-	out
-}
-
 pub(crate) fn base_tile_items(m: &MapModel, z: u8, chunk_key: u32, x: u16, y: u16) -> Vec<(u16, u16)> {
 	if let Some(&(start, end)) = m.floors.get(&z).and_then(|f| f.get(&chunk_key)) {
 		for t in start as usize..end as usize {
@@ -349,6 +325,187 @@ pub(crate) fn tile_stack_mut<'a>(m: &'a mut MapModel, z: u8, x: u16, y: u16) -> 
 }
 
 impl MapModel {
+	pub(crate) fn ensure_chunks(&mut self, z: u8, keys: &[u32], otb: &OtbItems) -> Result<(), String> {
+		if self.eager {
+			return Ok(());
+		}
+		let mut todo: Vec<(u8, u32, u64, u64)> = Vec::new();
+		for &key in keys {
+			let ck = ckey(z, key);
+			if self.loaded_chunks.contains(&ck) {
+				continue;
+			}
+			if let Some(&(start, end)) = self.chunk_ranges.get(&ck) {
+				todo.push((z, key, start, end));
+			}
+		}
+		self.load_chunks(&todo, otb)
+	}
+
+	pub(crate) fn ensure_floor(&mut self, z: u8, otb: &OtbItems) -> Result<(), String> {
+		if self.eager {
+			return Ok(());
+		}
+		let Some(keys) = self.floor_chunks.get(&z) else {
+			return Ok(());
+		};
+		let mut todo: Vec<(u8, u32, u64, u64)> = Vec::new();
+		for &key in keys {
+			let ck = ckey(z, key);
+			if self.loaded_chunks.contains(&ck) {
+				continue;
+			}
+			if let Some(&(start, end)) = self.chunk_ranges.get(&ck) {
+				todo.push((z, key, start, end));
+			}
+		}
+		self.load_chunks(&todo, otb)
+	}
+
+	pub(crate) fn window_minimap(
+		&mut self,
+		z: u8,
+		x0: u16,
+		y0: u16,
+		w: u16,
+		h: u16,
+		palette: &[u8],
+		otb: &OtbItems,
+	) -> Result<Vec<u8>, String> {
+		let w = w as usize;
+		let h = h as usize;
+		let mut out = Vec::with_capacity(8 + w * h);
+		push_u16(&mut out, x0);
+		push_u16(&mut out, y0);
+		push_u16(&mut out, w as u16);
+		push_u16(&mut out, h as u16);
+		if w == 0 || h == 0 {
+			return Ok(out);
+		}
+
+		let x0u = x0 as u32;
+		let y0u = y0 as u32;
+		let x1 = x0u + w as u32 - 1;
+		let y1 = y0u + h as u32 - 1;
+		let mut keys: Vec<u32> = Vec::new();
+		for cy in (y0u / CHUNK)..=(y1 / CHUNK) {
+			for cx in (x0u / CHUNK)..=(x1 / CHUNK) {
+				keys.push((cx << 16) | cy);
+			}
+		}
+		self.ensure_chunks(z, &keys, otb)?;
+
+		let pick = |clients: &[u16]| -> u8 {
+			for &c in clients.iter().rev() {
+				let ci = c as usize;
+				if ci < palette.len() && palette[ci] != 0 {
+					return palette[ci];
+				}
+			}
+			0
+		};
+
+		let mut grid = vec![0u8; w * h];
+		let efloor = self.edits.get(&z);
+		if let Some(floor) = self.floors.get(&z) {
+			for &key in &keys {
+				let Some(&(start, end)) = floor.get(&key) else {
+					continue;
+				};
+				let edits_chunk = efloor.and_then(|c| c.get(&key));
+				for t in start as usize..end as usize {
+					let x = self.tile_x[t] as u32;
+					let y = self.tile_y[t] as u32;
+					if x < x0u || x > x1 || y < y0u || y > y1 {
+						continue;
+					}
+					let pos = (x << 16) | y;
+					if edits_chunk.is_some_and(|c| c.contains_key(&pos)) {
+						continue;
+					}
+					let s = self.item_off[t] as usize;
+					let e = self.item_off[t + 1] as usize;
+					let col = pick(&self.client_ids[s..e]);
+					if col != 0 {
+						grid[(y - y0u) as usize * w + (x - x0u) as usize] = col;
+					}
+				}
+			}
+		}
+		if let Some(chunks) = efloor {
+			for chunk in chunks.values() {
+				for (&pos, stack) in chunk {
+					let x = (pos >> 16) & 0xFFFF;
+					let y = pos & 0xFFFF;
+					if x < x0u || x > x1 || y < y0u || y > y1 || stack.is_empty() {
+						continue;
+					}
+					let clients: Vec<u16> = stack.iter().map(|&(c, _)| c).collect();
+					let col = pick(&clients);
+					if col != 0 {
+						grid[(y - y0u) as usize * w + (x - x0u) as usize] = col;
+					}
+				}
+			}
+		}
+
+		out.extend_from_slice(&grid);
+		Ok(out)
+	}
+
+	fn load_chunks(&mut self, items: &[(u8, u32, u64, u64)], otb: &OtbItems) -> Result<(), String> {
+		if items.is_empty() {
+			return Ok(());
+		}
+		let path = self.source_path.clone().ok_or("lazy chunk load needs a source file")?;
+		let mut f = std::fs::File::open(&path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+		for &(z, key, start, end) in items {
+			f.seek(SeekFrom::Start(start)).map_err(|e| format!("seek error: {}", e))?;
+			let mut slice = vec![0u8; end.saturating_sub(start) as usize];
+			f.read_exact(&mut slice).map_err(|e| format!("read error: {}", e))?;
+			let mut col = FloorCollector {
+				otb,
+				xs: Vec::new(),
+				ys: Vec::new(),
+				item_start: Vec::new(),
+				item_count: Vec::new(),
+				client_ids: Vec::new(),
+				server_ids: Vec::new(),
+			};
+			read_otbm_floor(&slice, &mut col)?;
+			self.append_chunk(z, key, &col);
+			self.loaded_chunks.insert(ckey(z, key));
+		}
+		Ok(())
+	}
+
+	fn append_chunk(&mut self, z: u8, key: u32, col: &FloorCollector) {
+		let n = col.xs.len();
+		let mut order: Vec<u32> = (0..n as u32).collect();
+		order.sort_unstable_by_key(|&oi| {
+			let i = oi as usize;
+			((col.ys[i] as u32) << 16) | col.xs[i] as u32
+		});
+
+		let start = self.tile_x.len() as u32;
+		let mut acc = *self.item_off.last().unwrap();
+		for &oi in &order {
+			let i = oi as usize;
+			let s = col.item_start[i] as usize;
+			let c = col.item_count[i] as usize;
+			self.tile_x.push(col.xs[i]);
+			self.tile_y.push(col.ys[i]);
+			self.client_ids.extend_from_slice(&col.client_ids[s..s + c]);
+			self.server_ids.extend_from_slice(&col.server_ids[s..s + c]);
+			acc += c as u32;
+			self.item_off.push(acc);
+		}
+		let end = self.tile_x.len() as u32;
+		if end > start {
+			self.floors.entry(z).or_default().insert(key, (start, end));
+		}
+	}
+
 	pub(crate) fn record_begin(&mut self) {
 		if self.history.recording.is_none() {
 			self.history.recording = Some(HashMap::new());
@@ -459,7 +616,100 @@ pub(crate) fn empty_model(width: u16, height: u16) -> MapModel {
 		teleports: Vec::new(),
 		teleport_count: 0,
 		edits: HashMap::new(),
+		source_path: None,
+		available_floors: Vec::new(),
+		total_tiles: 0,
+		eager: true,
+		loaded_chunks: HashSet::new(),
+		chunk_ranges: HashMap::new(),
+		floor_chunks: HashMap::new(),
+		center_x: width / 2,
+		center_y: height / 2,
+		center_floor: 7,
 		history: History::default(),
+	}
+}
+
+pub(crate) fn lazy_model(width: u16, height: u16, idx: &MapIndex, source: std::path::PathBuf) -> MapModel {
+	let mut chunk_ranges: HashMap<u64, (u64, u64)> = HashMap::with_capacity(idx.chunks.len());
+	let mut floor_chunks: HashMap<u8, Vec<u32>> = HashMap::new();
+	let mut floor_set: HashSet<u8> = HashSet::new();
+	let mut total_tiles = 0u32;
+	for c in &idx.chunks {
+		let key = (c.cx as u32) << 16 | c.cy as u32;
+		chunk_ranges.insert(ckey(c.z, key), (c.start, c.end));
+		floor_chunks.entry(c.z).or_default().push(key);
+		floor_set.insert(c.z);
+		total_tiles += c.count;
+	}
+	let mut available_floors: Vec<u8> = floor_set.into_iter().collect();
+	available_floors.sort_unstable();
+
+	let (center_x, center_y, center_floor) = weighted_center(
+		idx.chunks.iter().map(|c| (c.z, c.cx as u32, c.cy as u32, c.count)),
+		((idx.min_x / 2).wrapping_add(idx.max_x / 2), (idx.min_y / 2).wrapping_add(idx.max_y / 2)),
+	);
+
+	MapModel {
+		width,
+		height,
+		min_x: idx.min_x,
+		min_y: idx.min_y,
+		max_x: idx.max_x,
+		max_y: idx.max_y,
+		tile_x: Vec::new(),
+		tile_y: Vec::new(),
+		item_off: vec![0],
+		client_ids: Vec::new(),
+		server_ids: Vec::new(),
+		floors: HashMap::new(),
+		teleports: idx.teleports.clone(),
+		teleport_count: idx.teleport_count,
+		edits: HashMap::new(),
+		source_path: Some(source),
+		available_floors,
+		total_tiles,
+		eager: false,
+		loaded_chunks: HashSet::new(),
+		chunk_ranges,
+		floor_chunks,
+		center_x,
+		center_y,
+		center_floor,
+		history: History::default(),
+	}
+}
+
+struct FloorCollector<'a> {
+	otb: &'a OtbItems,
+	xs: Vec<u16>,
+	ys: Vec<u16>,
+	item_start: Vec<u32>,
+	item_count: Vec<u16>,
+	client_ids: Vec<u16>,
+	server_ids: Vec<u16>,
+}
+
+impl OtbmVisitor for FloorCollector<'_> {
+	fn header(&mut self, _w: u16, _h: u16) {}
+	fn progress(&mut self, _pos: usize, _total: usize) {}
+	fn teleport(&mut self, _sx: u16, _sy: u16, _sz: u8, _dx: u16, _dy: u16, _dz: u8) {}
+	fn tile(&mut self, x: u16, y: u16, _z: u8, items: &[u16]) {
+		let start = self.client_ids.len() as u32;
+		let mut n: u16 = 0;
+		for &sid in items {
+			if let Some(cid) = self.otb.client_id(sid) {
+				if cid != 0 {
+					self.client_ids.push(cid);
+					self.server_ids.push(sid);
+					n += 1;
+				}
+			}
+		}
+		self.xs.push(x);
+		self.ys.push(y);
+		self.item_start.push(start);
+		self.item_count.push(n);
 	}
 }
 
@@ -478,17 +728,47 @@ pub fn close_map(map_id: u32, map_state: tauri::State<MapState>) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn get_map_chunks(map_id: u32, z: u8, keys: Vec<u32>, map_state: tauri::State<MapState>) -> Result<Response, String> {
-	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let model = guard.maps.get(&map_id).ok_or("map not loaded - call open_otbm first")?;
+pub fn get_map_chunks(
+	map_id: u32,
+	z: u8,
+	keys: Vec<u32>,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+) -> Result<Response, String> {
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let model = guard.maps.get_mut(&map_id).ok_or("map not loaded - call open_otbm first")?;
+	model.ensure_chunks(z, &keys, otb)?;
 	Ok(Response::new(serialize_chunks(model, z, &keys)))
 }
 
 #[tauri::command]
-pub fn get_minimap(map_id: u32, z: u8, colors: Vec<u8>, map_state: tauri::State<MapState>) -> Result<Response, String> {
-	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let model = guard.maps.get(&map_id).ok_or("map not loaded - call open_otbm first")?;
-	Ok(Response::new(serialize_minimap(model, z, &colors)))
+pub fn set_minimap_palette(colors: Vec<u8>, palette_state: tauri::State<MinimapPaletteState>) -> Result<(), String> {
+	*palette_state.lock().map_err(|e| format!("Lock error: {}", e))? = colors;
+	Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn get_minimap(
+	map_id: u32,
+	z: u8,
+	x: u16,
+	y: u16,
+	w: u16,
+	h: u16,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	palette_state: tauri::State<MinimapPaletteState>,
+) -> Result<Response, String> {
+	let palette_guard = palette_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let model = guard.maps.get_mut(&map_id).ok_or("map not loaded - call open_otbm first")?;
+	let payload = model.window_minimap(z, x, y, w, h, &palette_guard, otb)?;
+	Ok(Response::new(payload))
 }
 
 #[tauri::command]

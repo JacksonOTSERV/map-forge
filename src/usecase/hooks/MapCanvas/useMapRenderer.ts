@@ -50,6 +50,7 @@ export function useMapRenderer(deps: RendererDeps) {
   const { frameTick, lastChunksDrawn } = scene;
 
   function flushTileRequests() {
+    if (inputs.current.paused) return;
     if (tiles.pending.current.size === 0) return;
     const byZ = new Map<number, number[]>();
     for (const k of tiles.pending.current) {

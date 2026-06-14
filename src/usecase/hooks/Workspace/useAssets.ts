@@ -2,6 +2,7 @@ import React from 'react';
 
 import { PaletteData } from '~/domain/palette';
 import { loadPalette } from '~/adapter/palette';
+import { setMinimapPalette } from '~/adapter/minimap';
 import { loadAssets, LoadedAssets } from '~/adapter/assets';
 
 export interface AssetsState {
@@ -10,6 +11,7 @@ export interface AssetsState {
   status: string;
   error: string | null;
   minimapColors: number[] | null;
+  minimapReady: boolean;
   setStatus: React.Dispatch<React.SetStateAction<string>>;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
 }
@@ -19,6 +21,7 @@ export const useAssets = (): AssetsState => {
   const [palette, setPalette] = React.useState<PaletteData | null>(null);
   const [status, setStatus] = React.useState('Loading client assets...');
   const [error, setError] = React.useState<string | null>(null);
+  const [minimapReady, setMinimapReady] = React.useState(false);
 
   const minimapColors = React.useMemo(() => {
     if (!assets) return null;
@@ -28,6 +31,18 @@ export const useAssets = (): AssetsState => {
     for (const [id, thing] of assets.items) if (thing.miniMap && thing.miniMapColor) arr[id] = thing.miniMapColor & 0xff;
     return arr;
   }, [assets]);
+
+  React.useEffect(() => {
+    if (!minimapColors) return;
+    let cancelled = false;
+    setMinimapReady(false);
+    void setMinimapPalette(minimapColors).then(() => {
+      if (!cancelled) setMinimapReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [minimapColors]);
 
   React.useEffect(() => {
     loadAssets()
@@ -48,5 +63,5 @@ export const useAssets = (): AssetsState => {
       .catch((e) => setError(`Failed to load palette: ${e}`));
   }, [assets]);
 
-  return { assets, palette, status, error, minimapColors, setStatus, setError };
+  return { assets, palette, status, error, minimapColors, minimapReady, setStatus, setError };
 };

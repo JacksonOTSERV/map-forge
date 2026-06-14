@@ -11,7 +11,6 @@ const ESCAPE_CHAR: u8 = 0xFD;
 const OTBM_ATTR_TILE_FLAGS: u8 = 3;
 const OTBM_ATTR_ITEM: u8 = 9;
 
-// Item attribute ids (OTBM item nodes; attributes have type-specific fixed sizes).
 const OTBM_ATTR_DESCRIPTION: u8 = 1;
 const OTBM_ATTR_ACTION_ID: u8 = 4;
 const OTBM_ATTR_UNIQUE_ID: u8 = 5;
@@ -25,19 +24,19 @@ const OTBM_ATTR_COUNT: u8 = 15;
 const OTBM_ATTR_CHARGES: u8 = 22;
 const OTBM_ATTR_TIER: u8 = 41;
 
-/// Sink for the streaming parser. The parser never materializes a node tree; it walks the
-/// escaped byte stream once and pushes tiles/teleports here as they are decoded. `items` in
-/// `tile` borrows a scratch buffer that is overwritten on the next tile - copy what you keep.
 pub trait OtbmVisitor {
 	fn header(&mut self, width: u16, height: u16);
-	/// Called at the start of each tile area; `pos`/`total` are byte offsets for progress.
 	fn progress(&mut self, pos: usize, total: usize);
 	fn tile(&mut self, x: u16, y: u16, z: u8, items: &[u16]);
 	fn teleport(&mut self, sx: u16, sy: u16, sz: u8, dx: u16, dy: u16, dz: u8);
+
+	fn identifier(&mut self, _start: usize, _end: usize) {}
+	fn root_payload(&mut self, _start: usize, _end: usize) {}
+	fn map_attrs(&mut self, _start: usize, _end: usize) {}
+	fn tile_span(&mut self, _x: u16, _y: u16, _z: u8, _house: bool, _start: usize, _end: usize) {}
+	fn other_child(&mut self, _start: usize, _end: usize) {}
 }
 
-/// Cursor over the escaped node stream. `data_*` readers transparently unescape `0xFD`
-/// and stop (returning `None`) when a structural byte (`0xFE`/`0xFF`) is reached.
 struct Reader<'a> {
 	b: &'a [u8],
 	pos: usize,
@@ -80,7 +79,6 @@ impl<'a> Reader<'a> {
 		true
 	}
 
-	/// Advance past any remaining payload bytes of the current node up to its next structural byte.
 	fn skip_to_structural(&mut self) {
 		while let Some(b) = self.peek() {
 			if b == NODE_START || b == NODE_END {
@@ -106,21 +104,22 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 		if self.r.b.len() < 6 {
 			return Err("otbm: file too small to be a node-tree".into());
 		}
+		self.v.identifier(0, 4);
 		self.r.pos = 4;
 		if self.r.peek() != Some(NODE_START) {
 			return Err("otbm: missing root node start byte".into());
 		}
 		self.r.pos += 1;
 
-		// Root payload: [type u8][version u32][width u16][height u16][items_major u32][items_minor u32]
 		self.r.data_u8().ok_or("otbm: missing root type")?;
+		let rp_start = self.r.pos;
 		self.r.data_u32().ok_or("otbm: missing version")?;
 		let width = self.r.data_u16().ok_or("otbm: missing width")?;
 		let height = self.r.data_u16().ok_or("otbm: missing height")?;
 		self.v.header(width, height);
 		self.r.skip_to_structural();
+		self.v.root_payload(rp_start, self.r.pos);
 
-		// Root children: the single OTBM_MAP_DATA node (others, if any, are skipped).
 		self.each_child(|p| {
 			let kind = p.r.data_u8().ok_or("otbm: missing node type")?;
 			if kind == OTBM_MAP_DATA {
@@ -132,13 +131,18 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 	}
 
 	fn map_data(&mut self) -> Result<(), String> {
-		self.r.skip_to_structural(); // map attributes (description, spawn/house files)
+		let attrs_start = self.r.pos;
+		self.r.skip_to_structural();
+		self.v.map_attrs(attrs_start, self.r.pos);
 		self.each_child(|p| {
+			let node_start = p.r.pos - 1;
 			let kind = p.r.data_u8().ok_or("otbm: missing node type")?;
 			if kind == OTBM_TILE_AREA {
 				p.tile_area()
 			} else {
-				p.skip_subtree()
+				p.skip_subtree()?;
+				p.v.other_child(node_start, p.r.pos);
+				Ok(())
 			}
 		})
 	}
@@ -150,16 +154,20 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 		self.r.skip_to_structural();
 		self.v.progress(self.r.pos, self.total);
 		self.each_child(|p| {
+			let node_start = p.r.pos - 1;
 			let kind = p.r.data_u8().ok_or("otbm: missing node type")?;
 			if kind == OTBM_TILE || kind == OTBM_HOUSETILE {
-				p.tile(kind == OTBM_HOUSETILE, base_x, base_y, base_z)
+				let house = kind == OTBM_HOUSETILE;
+				let (x, y, z) = p.tile(house, base_x, base_y, base_z)?;
+				p.v.tile_span(x, y, z, house, node_start, p.r.pos);
+				Ok(())
 			} else {
 				p.skip_subtree()
 			}
 		})
 	}
 
-	fn tile(&mut self, house: bool, base_x: u16, base_y: u16, base_z: u8) -> Result<(), String> {
+	fn tile(&mut self, house: bool, base_x: u16, base_y: u16, base_z: u8) -> Result<(u16, u16, u8), String> {
 		let dx = self.r.data_u8().ok_or("otbm: tile missing dx")?;
 		let dy = self.r.data_u8().ok_or("otbm: tile missing dy")?;
 		if house {
@@ -169,8 +177,6 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 		let tile_y = base_y.wrapping_add(dy as u16);
 		self.scratch.clear();
 
-		// Inline tile attributes (ground item lives here). An unknown attribute has no known
-		// size, so we stop walking - the rest of the payload is skipped before the child loop.
 		while let Some(attr) = self.r.data_u8() {
 			match attr {
 				OTBM_ATTR_TILE_FLAGS => {
@@ -187,8 +193,6 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 		}
 		self.r.skip_to_structural();
 
-		// Stacked items are child item nodes (bottom-to-top). Nested item children (container
-		// contents) are skipped by tile_item so they never land on the map tile.
 		self.each_child(|p| {
 			let kind = p.r.data_u8().ok_or("otbm: missing node type")?;
 			if kind == OTBM_ITEM {
@@ -201,15 +205,13 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 		let items = std::mem::take(&mut self.scratch);
 		self.v.tile(tile_x, tile_y, base_z, &items);
 		self.scratch = items;
-		Ok(())
+		Ok((tile_x, tile_y, base_z))
 	}
 
 	fn tile_item(&mut self, tile_x: u16, tile_y: u16, base_z: u8) -> Result<(), String> {
 		let id = self.r.data_u16().ok_or("otbm: item missing id")?;
 		self.scratch.push(id);
 
-		// Walk item attributes by known fixed size to capture a teleport destination; an
-		// unknown attribute stops the walk (its size is unknown), forgoing only teleport detection.
 		while let Some(attr) = self.r.data_u8() {
 			let ok = match attr {
 				OTBM_ATTR_COUNT | OTBM_ATTR_TIER | OTBM_ATTR_HOUSEDOORID | OTBM_ATTR_RUNE_CHARGES => self.r.skip_data(1),
@@ -230,21 +232,17 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 				break;
 			}
 		}
-		self.skip_subtree() // skip payload remainder + any container children
+		self.skip_subtree()
 	}
 
-	/// Consume the current node's payload remainder and all of its child subtrees.
 	fn skip_subtree(&mut self) -> Result<(), String> {
 		self.r.skip_to_structural();
 		self.each_child(|p| {
-			p.r.data_u8(); // node type, ignored
+			p.r.data_u8();
 			p.skip_subtree()
 		})
 	}
 
-	/// Iterate child nodes until this node's `NODE_END`. `pos` sits just past the parent's
-	/// last payload byte (a structural byte) on entry. `f` runs once per child, just past its
-	/// `NODE_START`, and must fully consume the child including its terminating `NODE_END`.
 	fn each_child(&mut self, mut f: impl FnMut(&mut Self) -> Result<(), String>) -> Result<(), String> {
 		loop {
 			match self.r.peek() {
@@ -263,7 +261,6 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 	}
 }
 
-/// Stream a parsed OTBM into `visitor` in a single pass over `bytes`.
 pub fn read_otbm<V: OtbmVisitor>(bytes: &[u8], visitor: &mut V) -> Result<(), String> {
 	let mut parser = Parser {
 		r: Reader { b: bytes, pos: 0 },
@@ -272,4 +269,45 @@ pub fn read_otbm<V: OtbmVisitor>(bytes: &[u8], visitor: &mut V) -> Result<(), St
 		scratch: Vec::new(),
 	};
 	parser.run()
+}
+
+pub fn read_otbm_header(bytes: &[u8]) -> Result<(u16, u16), String> {
+	let mut r = Reader { b: bytes, pos: 0 };
+	if bytes.len() < 6 {
+		return Err("otbm: file too small for header".into());
+	}
+	r.pos = 4;
+	if r.peek() != Some(NODE_START) {
+		return Err("otbm: missing root node start byte".into());
+	}
+	r.pos += 1;
+	r.data_u8().ok_or("otbm: missing root type")?;
+	r.data_u32().ok_or("otbm: missing version")?;
+	let width = r.data_u16().ok_or("otbm: missing width")?;
+	let height = r.data_u16().ok_or("otbm: missing height")?;
+	Ok((width, height))
+}
+
+pub fn read_otbm_floor<V: OtbmVisitor>(slice: &[u8], visitor: &mut V) -> Result<(), String> {
+	let mut p = Parser {
+		r: Reader { b: slice, pos: 0 },
+		v: visitor,
+		total: slice.len(),
+		scratch: Vec::new(),
+	};
+	loop {
+		match p.r.peek() {
+			Some(NODE_START) => {
+				p.r.pos += 1;
+				let kind = p.r.data_u8().ok_or("otbm floor: missing node type")?;
+				if kind == OTBM_TILE_AREA {
+					p.tile_area()?;
+				} else {
+					p.skip_subtree()?;
+				}
+			}
+			_ => break,
+		}
+	}
+	Ok(())
 }

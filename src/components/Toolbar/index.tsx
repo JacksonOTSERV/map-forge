@@ -9,6 +9,8 @@ interface ToolbarProps {
   recent: string[];
   onNew: () => void;
   onOpen: () => void;
+  onSave: () => void;
+  onSaveAs: () => void;
   onCloseMap: () => void;
   onClearRecent: () => void;
   onOpenPreferences: () => void;
@@ -21,6 +23,8 @@ const Toolbar = ({
   recent,
   onNew,
   onOpen,
+  onSave,
+  onSaveAs,
   onCloseMap,
   onClearRecent,
   onOpenRecent,
@@ -38,7 +42,9 @@ const Toolbar = ({
         onNew={onNew}
         recent={recent}
         onOpen={onOpen}
+        onSave={onSave}
         loading={loading}
+        onSaveAs={onSaveAs}
         hasActive={hasActive}
         onCloseMap={onCloseMap}
         onOpenRecent={onOpenRecent}

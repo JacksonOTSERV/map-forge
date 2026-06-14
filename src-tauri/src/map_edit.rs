@@ -410,6 +410,7 @@ pub fn paint_tiles(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
 	m.record_begin();
 	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, automagic);
 	m.record_commit(ACTION_PAINT);
@@ -446,8 +447,9 @@ pub fn preview_paint(
 		return Ok(empty());
 	};
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let real = guard.maps.get(&map_id).ok_or("map not loaded")?;
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let real = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	real.ensure_floor(z, otb)?;
 
 	let min_x = *xs.iter().min().unwrap();
 	let max_x = *xs.iter().max().unwrap();
@@ -519,6 +521,7 @@ pub fn move_item(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
 	if stack_at(m, z, from_x, from_y).is_empty() {
 		return Ok(Vec::new());
 	}
@@ -557,6 +560,7 @@ pub fn delete_item(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
 	m.record_begin();
 
 	let stack = tile_stack_mut(m, z, x, y);
@@ -598,6 +602,7 @@ pub fn erase_area(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
 
 	let (min_x, max_x) = (x0.min(x1), x0.max(x1));
 	let (min_y, max_y) = (y0.min(y1), y0.max(y1));
@@ -683,6 +688,7 @@ pub fn delete_selection(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
 	m.record_begin();
 
 	let mut touched: HashSet<u32> = HashSet::new();
@@ -719,6 +725,7 @@ pub fn copy_selection(
 	xs: Vec<u16>,
 	ys: Vec<u16>,
 	all: Vec<bool>,
+	otb_state: tauri::State<OtbState>,
 	map_state: tauri::State<MapState>,
 	clip_state: tauri::State<CopyBufferState>,
 ) -> Result<u32, String> {
@@ -726,8 +733,11 @@ pub fn copy_selection(
 		return Err("selection arrays length mismatch".into());
 	}
 
-	let guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let m = guard.maps.get(&map_id).ok_or("map not loaded")?;
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
 
 	let min_x = xs.iter().copied().min().unwrap_or(0);
 	let min_y = ys.iter().copied().min().unwrap_or(0);
@@ -754,6 +764,7 @@ pub fn paste_selection(
 	x: u16,
 	y: u16,
 	z: u8,
+	otb_state: tauri::State<OtbState>,
 	map_state: tauri::State<MapState>,
 	materials_state: tauri::State<MaterialsState>,
 	placement_state: tauri::State<PlacementState>,
@@ -764,12 +775,15 @@ pub fn paste_selection(
 		return Ok(Vec::new());
 	};
 
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
 	m.record_begin();
 
 	let mut touched: HashSet<u32> = HashSet::new();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, Plus, Minus } from 'lucide-react';
 
 import { cn } from '~/usecase/classNames';
 import { fetchMinimap } from '~/adapter/minimap';
@@ -9,6 +9,12 @@ import { DragHandleProps } from '~/components/Dock/DockablePanel';
 
 const TILE = 32;
 const EDIT_DEBOUNCE_MS = 150;
+const FETCH_DEBOUNCE_MS = 90;
+const MIN_CELL_PX = 1;
+const MAX_CELL_PX = 32;
+const DEFAULT_CELL_PX = 4;
+const WINDOW_MARGIN = 1.6;
+const MAX_WINDOW = 1024;
 
 interface Meta {
   minX: number;
@@ -23,6 +29,13 @@ interface Mapping {
   oy: number;
 }
 
+interface Window {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface MinimapApi {
   markDirty: (z: number) => void;
 }
@@ -30,7 +43,7 @@ export interface MinimapApi {
 interface MinimapProps {
   mapId: number;
   floorZ: number;
-  colors: number[];
+  paletteReady: boolean;
   onClose?: () => void;
   headerMenu?: React.ReactNode;
   dragHandle?: DragHandleProps;
@@ -39,7 +52,7 @@ interface MinimapProps {
   centerRef: React.MutableRefObject<((x: number, y: number) => void) | null>;
 }
 
-const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewRef, apiRef, centerRef }: MinimapProps) => {
+const Minimap = ({ mapId, floorZ, paletteReady, onClose, headerMenu, dragHandle, viewRef, apiRef, centerRef }: MinimapProps) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const offscreenRef = React.useRef<HTMLCanvasElement | null>(null);
   const metaRef = React.useRef<Meta>({ minX: 0, minY: 0, width: 0, height: 0 });
@@ -47,8 +60,34 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
   const floorRef = React.useRef(floorZ);
   const seqRef = React.useRef(0);
   const timerRef = React.useRef<number | null>(null);
+  const offVersionRef = React.useRef(0);
+  const reqWinRef = React.useRef<Window | null>(null);
+  const fetchTimerRef = React.useRef<number | null>(null);
+  const [cellPx, setCellPx] = React.useState(DEFAULT_CELL_PX);
+  const cellPxRef = React.useRef(cellPx);
 
   floorRef.current = floorZ;
+  cellPxRef.current = cellPx;
+
+  const zoomBy = React.useCallback((delta: number) => {
+    setCellPx((prev) => Math.min(MAX_CELL_PX, Math.max(MIN_CELL_PX, prev + delta)));
+  }, []);
+
+  const desiredWindow = React.useCallback((): Window | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const cell = cellPxRef.current;
+    const w = Math.max(16, Math.min(MAX_WINDOW, Math.ceil((canvas.clientWidth / cell) * WINDOW_MARGIN)));
+    const h = Math.max(16, Math.min(MAX_WINDOW, Math.ceil((canvas.clientHeight / cell) * WINDOW_MARGIN)));
+    const v = viewRef.current;
+    let cx = 0;
+    let cy = 0;
+    if (v && v.zoom > 0) {
+      cx = (v.camX + v.vw / (2 * v.zoom)) / TILE;
+      cy = (v.camY + v.vh / (2 * v.zoom)) / TILE;
+    }
+    return { x: Math.max(0, Math.round(cx - w / 2)), y: Math.max(0, Math.round(cy - h / 2)), w, h };
+  }, [viewRef]);
 
   const buildOffscreen = React.useCallback((img: MinimapImage) => {
     let off = offscreenRef.current;
@@ -57,7 +96,8 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
       offscreenRef.current = off;
     }
     if (img.width === 0 || img.height === 0) {
-      metaRef.current = { minX: 0, minY: 0, width: 0, height: 0 };
+      metaRef.current = { minX: img.minX, minY: img.minY, width: 0, height: 0 };
+      offVersionRef.current++;
       return;
     }
     off.width = img.width;
@@ -82,18 +122,32 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
     }
     ctx.putImageData(id, 0, 0);
     metaRef.current = { minX: img.minX, minY: img.minY, width: img.width, height: img.height };
+    offVersionRef.current++;
   }, []);
 
   const recompute = React.useCallback(() => {
+    if (!paletteReady) return;
+    const win = desiredWindow();
+    if (!win) return;
+    reqWinRef.current = win;
     const seq = ++seqRef.current;
-    fetchMinimap(mapId, floorRef.current, colors)
+    fetchMinimap(mapId, floorRef.current, win.x, win.y, win.w, win.h)
       .then((img) => {
         if (seq === seqRef.current) buildOffscreen(img);
       })
       .catch((err) => console.error('Failed to build minimap', err));
-  }, [mapId, colors, buildOffscreen]);
+  }, [mapId, paletteReady, desiredWindow, buildOffscreen]);
+
+  const scheduleFetch = React.useCallback(() => {
+    if (fetchTimerRef.current) window.clearTimeout(fetchTimerRef.current);
+    fetchTimerRef.current = window.setTimeout(() => {
+      fetchTimerRef.current = null;
+      recompute();
+    }, FETCH_DEBOUNCE_MS);
+  }, [recompute]);
 
   React.useEffect(() => {
+    reqWinRef.current = null;
     recompute();
   }, [recompute, floorZ]);
 
@@ -111,11 +165,13 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
     return () => {
       apiRef.current = null;
       if (timerRef.current) window.clearTimeout(timerRef.current);
+      if (fetchTimerRef.current) window.clearTimeout(fetchTimerRef.current);
     };
   }, [apiRef, recompute]);
 
   React.useEffect(() => {
     let raf = 0;
+    let lastSig = '';
     const draw = () => {
       const canvas = canvasRef.current;
       if (canvas) {
@@ -123,6 +179,13 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
         const cw = Math.round(canvas.clientWidth * dpr);
         const ch = Math.round(canvas.clientHeight * dpr);
         if (cw > 0 && ch > 0) {
+          const v = viewRef.current;
+          const sig = `${cw}x${ch}:${offVersionRef.current}:${cellPxRef.current}:${v ? `${v.camX},${v.camY},${v.zoom},${v.vw},${v.vh}` : 'none'}`;
+          if (sig === lastSig && canvas.width === cw && canvas.height === ch) {
+            raf = requestAnimationFrame(draw);
+            return;
+          }
+          lastSig = sig;
           if (canvas.width !== cw || canvas.height !== ch) {
             canvas.width = cw;
             canvas.height = ch;
@@ -132,17 +195,20 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
           const meta = metaRef.current;
           if (ctx) {
             ctx.clearRect(0, 0, cw, ch);
+            const scale = cellPxRef.current * dpr;
+            let centerTileX = meta.minX + meta.width / 2;
+            let centerTileY = meta.minY + meta.height / 2;
+            if (v && v.zoom > 0) {
+              centerTileX = (v.camX + v.vw / (2 * v.zoom)) / TILE;
+              centerTileY = (v.camY + v.vh / (2 * v.zoom)) / TILE;
+            }
             if (off && meta.width > 0) {
-              const scale = Math.min(cw / meta.width, ch / meta.height);
-              const dw = meta.width * scale;
-              const dh = meta.height * scale;
-              const ox = (cw - dw) / 2;
-              const oy = (ch - dh) / 2;
+              const ox = cw / 2 - (centerTileX - meta.minX) * scale;
+              const oy = ch / 2 - (centerTileY - meta.minY) * scale;
               ctx.imageSmoothingEnabled = false;
-              ctx.drawImage(off, ox, oy, dw, dh);
+              ctx.drawImage(off, ox, oy, meta.width * scale, meta.height * scale);
               mappingRef.current = { scale, ox, oy };
 
-              const v = viewRef.current;
               if (v && v.zoom > 0) {
                 const left = ox + (v.camX / TILE - meta.minX) * scale;
                 const top = oy + (v.camY / TILE - meta.minY) * scale;
@@ -155,6 +221,16 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
             } else {
               mappingRef.current = null;
             }
+
+            const want = desiredWindow();
+            const req = reqWinRef.current;
+            if (
+              want &&
+              (!req || want.w !== req.w || want.h !== req.h || Math.abs(want.x - req.x) > 6 || Math.abs(want.y - req.y) > 6)
+            ) {
+              reqWinRef.current = want;
+              scheduleFetch();
+            }
           }
         }
       }
@@ -162,7 +238,18 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [viewRef]);
+  }, [viewRef, desiredWindow, scheduleFetch]);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      zoomBy(e.deltaY < 0 ? 1 : -1);
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, [zoomBy]);
 
   const navigate = (e: React.PointerEvent) => {
     const canvas = canvasRef.current;
@@ -214,7 +301,7 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
         )}
       </div>
 
-      <div className="min-h-0 flex-1 bg-[#11151c] p-1">
+      <div className="relative min-h-0 flex-1 bg-[#11151c] p-1">
         <canvas
           ref={canvasRef}
           onPointerMove={onPointerMove}
@@ -222,6 +309,26 @@ const Minimap = ({ mapId, floorZ, colors, onClose, headerMenu, dragHandle, viewR
           className="h-full w-full cursor-pointer"
           style={{ display: 'block', imageRendering: 'pixelated' }}
         />
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute right-2 top-2 flex flex-col items-center overflow-hidden rounded-md border border-border/60 bg-card/90 shadow-island backdrop-blur-sm"
+        >
+          <button
+            title="Zoom in"
+            onClick={() => zoomBy(1)}
+            className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:bg-item-hover hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+          <span className="w-6 text-center font-mono text-[10px] text-foreground">{cellPx}</span>
+          <button
+            title="Zoom out"
+            onClick={() => zoomBy(-1)}
+            className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:bg-item-hover hover:text-foreground"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );

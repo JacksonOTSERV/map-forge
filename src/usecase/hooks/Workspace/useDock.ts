@@ -83,7 +83,14 @@ export const useDock = (isContentReady: (id: PanelId) => boolean): DockApi => {
   const [layout, setLayout] = React.useState<DockLayout>(defaultDockLayout);
   const [maxStack, setMaxStack] = React.useState(DEFAULT_MAX_STACK);
   const [dragging, setDragging] = React.useState<PanelId | null>(null);
-  const [resizing, setResizing] = React.useState(false);
+  const [resizing, setResizingState] = React.useState(false);
+  const layoutRef = React.useRef(layout);
+  layoutRef.current = layout;
+
+  const setResizing = React.useCallback((value: boolean) => {
+    setResizingState(value);
+    if (!value) requestAnimationFrame(() => saveDockLayout(layoutRef.current));
+  }, []);
   const [dragSize, setDragSize] = React.useState<{ width: number; height: number } | null>(null);
   const [dropTarget, setDropTarget] = React.useState<DropTarget | null>(null);
 
@@ -214,39 +221,23 @@ export const useDock = (isContentReady: (id: PanelId) => boolean): DockApi => {
 
   const resizeColumnWidth = (zone: DockZone, ci: number, dx: number) => {
     const dir = zone === 'left' ? 1 : -1;
-    setLayout((prev) => {
-      const next = resizeColumn(prev, zone, ci, columnWidthOf(prev, zone, ci) + dir * dx);
-      saveDockLayout(next);
-      return next;
-    });
+    setLayout((prev) => resizeColumn(prev, zone, ci, columnWidthOf(prev, zone, ci) + dir * dx));
   };
 
   const resizePanelHeight = (id: PanelId, dy: number) => {
-    setLayout((prev) => {
-      const next = resizeHeight(prev, id, heightOf(prev, id) + dy);
-      saveDockLayout(next);
-      return next;
-    });
+    setLayout((prev) => resizeHeight(prev, id, heightOf(prev, id) + dy));
   };
 
   const resizeFloatPanel = (id: PanelId, side: ResizeSide, dx: number, dy: number) => {
     const ws = workspaceRef.current?.getBoundingClientRect();
     const bounds = ws ? { width: ws.width, height: ws.height } : undefined;
-    setLayout((prev) => {
-      const next = resizeFloat(prev, id, side, dx, dy, bounds);
-      saveDockLayout(next);
-      return next;
-    });
+    setLayout((prev) => resizeFloat(prev, id, side, dx, dy, bounds));
   };
 
   const resizeCornerPanel = (id: PanelId, corner: MapCorner, side: ResizeSide, dx: number, dy: number) => {
     const area = mapAreaRef.current?.getBoundingClientRect();
     const bounds = area ? { width: area.width - 2 * CORNER_MARGIN, height: area.height - 2 * CORNER_MARGIN } : undefined;
-    setLayout((prev) => {
-      const next = resizeCorner(prev, id, corner, side, dx, dy, bounds);
-      saveDockLayout(next);
-      return next;
-    });
+    setLayout((prev) => resizeCorner(prev, id, corner, side, dx, dy, bounds));
   };
 
   const resetLayout = () => {

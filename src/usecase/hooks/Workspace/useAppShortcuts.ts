@@ -4,6 +4,8 @@ interface ShortcutActions {
   activeId: string | null;
   handleNew: () => void;
   handleOpen: () => void;
+  handleSave: () => void;
+  handleSaveAs: () => void;
   closeTab: (id: string) => void;
   openPreferences: () => void;
   toggleMinimap: () => void;
@@ -15,9 +17,16 @@ export const useAppShortcuts = (actions: ShortcutActions) => {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const key = e.key.toLowerCase();
       const a = ref.current;
+      if (key === 's') {
+        e.preventDefault();
+        if (e.shiftKey) a.handleSaveAs();
+        else a.handleSave();
+        return;
+      }
+      if (e.shiftKey) return;
       if (key === 'n') {
         e.preventDefault();
         a.handleNew();

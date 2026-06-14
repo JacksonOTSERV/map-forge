@@ -6,8 +6,12 @@ function toUint8(response: Uint8Array | ArrayBuffer): Uint8Array {
   return response instanceof Uint8Array ? response : new Uint8Array(response);
 }
 
-export async function fetchMinimap(mapId: number, z: number, colors: number[]): Promise<MinimapImage> {
-  const response = await invoke<Uint8Array | ArrayBuffer>('get_minimap', { mapId, z, colors });
+export async function setMinimapPalette(colors: number[]): Promise<void> {
+  await invoke('set_minimap_palette', { colors });
+}
+
+export async function fetchMinimap(mapId: number, z: number, x: number, y: number, w: number, h: number): Promise<MinimapImage> {
+  const response = await invoke<Uint8Array | ArrayBuffer>('get_minimap', { mapId, z, x, y, w, h });
   const u8 = toUint8(response);
   const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   const minX = view.getUint16(0, true);
