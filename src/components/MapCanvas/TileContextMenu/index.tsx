@@ -70,12 +70,6 @@ const TileContextMenu = ({
       style={{ left: menu.clientX, top: menu.clientY }}
       className="fixed z-50 min-w-[220px] rounded-md border border-border bg-popover py-1 text-sm text-popover-foreground shadow-island-lg"
     >
-      <Item label="Cut" onClick={onCut} shortcut="Ctrl+X" disabled={!hasSelection} />
-      <Item label="Copy" onClick={onCopy} shortcut="Ctrl+C" disabled={!hasSelection} />
-      <Item label="Paste" shortcut="Ctrl+V" disabled={!canPaste} onClick={() => onPaste(tile)} />
-      <Item label="Delete" shortcut="Del" onClick={onDelete} disabled={!hasSelection} />
-
-      <Separator />
       {dest && <Item onClick={() => onGoToDest(dest)} label={`Go To Destination (${dest.x}, ${dest.y}, ${dest.z})`} />}
       {item && <Item onClick={() => onSelectRaw(item)} label={`Select RAW${item.name ? ` "${item.name}"` : ''}`} />}
       {ground && <Item label="Select Groundbrush" onClick={() => onSelectGround(ground)} />}
@@ -90,6 +84,12 @@ const TileContextMenu = ({
           </>
         )}
       </SubMenu>
+
+      <Separator />
+      <Item label="Cut" onClick={onCut} shortcut="Ctrl+X" disabled={!hasSelection} />
+      <Item label="Copy" onClick={onCopy} shortcut="Ctrl+C" disabled={!hasSelection} />
+      <Item label="Paste" shortcut="Ctrl+V" disabled={!canPaste} onClick={() => onPaste(tile)} />
+      <Item label="Delete" shortcut="Del" onClick={onDelete} disabled={!hasSelection} />
 
       <Separator />
       <Item disabled label="Properties" />
