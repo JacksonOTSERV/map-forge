@@ -19,7 +19,7 @@ interface TileContextMenuProps {
 }
 
 interface ItemProps {
-  label: string;
+  label: React.ReactNode;
   shortcut?: string;
   disabled?: boolean;
   onClick?: () => void;
@@ -38,13 +38,17 @@ const Item = ({ label, shortcut, disabled, onClick }: ItemProps) => (
 
 const Separator = () => <div className="my-1 h-px bg-border" />;
 
-const SubMenu = ({ label, children }: { label: string; children: React.ReactNode }) => (
+const SubMenu = ({ label, children, openLeft }: { label: string; children: React.ReactNode; openLeft?: boolean }) => (
   <div className="group/sub relative">
     <button className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-accent">
       <span>{label}</span>
       <ChevronRight className="ml-6 h-3.5 w-3.5 text-muted-foreground" />
     </button>
-    <div className="invisible absolute left-full top-0 -ml-1 min-w-[200px] rounded-md border border-border bg-popover py-1 shadow-island-lg group-hover/sub:visible">
+    <div
+      className={`invisible absolute top-0 min-w-[200px] rounded-md border border-border bg-popover py-1 shadow-island-lg group-hover/sub:visible ${
+        openLeft ? 'right-full -mr-1' : 'left-full -ml-1'
+      }`}
+    >
       {children}
     </div>
   </div>
@@ -64,17 +68,46 @@ const TileContextMenu = ({
 }: TileContextMenuProps) => {
   const { item, ground, dest, tile, hasSelection, canPaste } = menu;
 
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [pos, setPos] = React.useState({ left: menu.clientX, top: menu.clientY });
+  const [flipX, setFlipX] = React.useState(false);
+
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const margin = 4;
+    const overflowX = menu.clientX + width > window.innerWidth - margin;
+    const overflowY = menu.clientY + height > window.innerHeight - margin;
+    setPos({
+      left: overflowX ? Math.max(margin, menu.clientX - width) : menu.clientX,
+      top: overflowY ? Math.max(margin, menu.clientY - height) : menu.clientY
+    });
+    setFlipX(overflowX);
+  }, [menu.clientX, menu.clientY]);
+
   return (
     <div
+      ref={ref}
       onMouseDown={(e) => e.stopPropagation()}
-      style={{ left: menu.clientX, top: menu.clientY }}
+      style={{ left: pos.left, top: pos.top }}
       className="fixed z-50 min-w-[220px] rounded-md border border-border bg-popover py-1 text-sm text-popover-foreground shadow-island-lg"
     >
       {dest && <Item onClick={() => onGoToDest(dest)} label={`Go To Destination (${dest.x}, ${dest.y}, ${dest.z})`} />}
-      {item && <Item onClick={() => onSelectRaw(item)} label={`Select RAW${item.name ? ` "${item.name}"` : ''}`} />}
+      {item && (
+        <Item
+          onClick={() => onSelectRaw(item)}
+          label={
+            <span>
+              Select RAW
+              {item.name && <span className="text-xs text-muted-foreground"> "{item.name}"</span>}
+            </span>
+          }
+        />
+      )}
       {ground && <Item label="Select Groundbrush" onClick={() => onSelectGround(ground)} />}
 
-      <SubMenu label="Copy...">
+      <SubMenu label="Copy..." openLeft={flipX}>
         <Item label="Copy Position" disabled={!hasSelection} onClick={() => onCopyPosition(tile)} />
         {item && (
           <>
