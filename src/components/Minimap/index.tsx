@@ -9,12 +9,12 @@ import { DragHandleProps } from '~/components/Dock/DockablePanel';
 
 const TILE = 32;
 const EDIT_DEBOUNCE_MS = 150;
-const FETCH_DEBOUNCE_MS = 90;
+const FETCH_DEBOUNCE_MS = 60;
 const MIN_CELL_PX = 1;
 const MAX_CELL_PX = 32;
 const DEFAULT_CELL_PX = 4;
-const WINDOW_MARGIN = 1.6;
-const MAX_WINDOW = 1024;
+const WINDOW_MARGIN = 3;
+const MAX_WINDOW = 2048;
 
 interface Meta {
   minX: number;
@@ -224,12 +224,14 @@ const Minimap = ({ mapId, floorZ, paletteReady, onClose, headerMenu, dragHandle,
 
             const want = desiredWindow();
             const req = reqWinRef.current;
-            if (
-              want &&
-              (!req || want.w !== req.w || want.h !== req.h || Math.abs(want.x - req.x) > 6 || Math.abs(want.y - req.y) > 6)
-            ) {
-              reqWinRef.current = want;
-              scheduleFetch();
+            if (want) {
+              const driftX = Math.max(8, want.w * 0.2);
+              const driftY = Math.max(8, want.h * 0.2);
+              const sizeChanged = !req || want.w !== req.w || want.h !== req.h;
+              if (sizeChanged || Math.abs(want.x - req.x) > driftX || Math.abs(want.y - req.y) > driftY) {
+                reqWinRef.current = want;
+                scheduleFetch();
+              }
             }
           }
         }
