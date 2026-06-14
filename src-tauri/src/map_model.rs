@@ -69,9 +69,6 @@ pub struct MapModel {
 	pub(crate) loaded_chunks: HashSet<u64>,
 	pub(crate) chunk_ranges: HashMap<u64, (u64, u64)>,
 	pub(crate) floor_chunks: HashMap<u8, Vec<u32>>,
-	pub(crate) center_x: u16,
-	pub(crate) center_y: u16,
-	pub(crate) center_floor: u8,
 	pub(crate) description: String,
 	pub(crate) spawn_file: String,
 	pub(crate) house_file: String,
@@ -81,26 +78,6 @@ pub struct MapModel {
 	pub(crate) towns: Vec<Town>,
 	pub(crate) house_tile_count: u32,
 	history: History,
-}
-
-fn weighted_center<I: Iterator<Item = (u8, u32, u32, u32)>>(chunks: I, fallback: (u16, u16)) -> (u16, u16, u8) {
-	let mut acc: HashMap<u8, (u64, u64, u64)> = HashMap::new();
-	for (z, cx, cy, count) in chunks {
-		let c = count as u64;
-		if c == 0 {
-			continue;
-		}
-		let tx = (cx * CHUNK + CHUNK / 2) as u64;
-		let ty = (cy * CHUNK + CHUNK / 2) as u64;
-		let e = acc.entry(z).or_default();
-		e.0 += tx * c;
-		e.1 += ty * c;
-		e.2 += c;
-	}
-	match acc.iter().max_by_key(|(_, v)| v.2) {
-		Some((&z, &(sx, sy, t))) if t > 0 => ((sx / t) as u16, (sy / t) as u16, z),
-		_ => (fallback.0, fallback.1, 7),
-	}
 }
 
 pub(crate) fn ckey(z: u8, chunk: u32) -> u64 {
@@ -195,13 +172,6 @@ pub(crate) fn build_map_model(
 	available_floors.sort_unstable();
 	let total_tiles = tile_x.len() as u32;
 
-	let center_chunks = floors.iter().flat_map(|(&z, cm)| {
-		cm.iter()
-			.map(move |(&key, &(start, end))| (z, key >> 16, key & 0xFFFF, end - start))
-	});
-	let (center_x, center_y, center_floor) =
-		weighted_center(center_chunks, ((min_x / 2).wrapping_add(max_x / 2), (min_y / 2).wrapping_add(max_y / 2)));
-
 	MapModel {
 		width,
 		height,
@@ -225,9 +195,6 @@ pub(crate) fn build_map_model(
 		loaded_chunks: HashSet::new(),
 		chunk_ranges: HashMap::new(),
 		floor_chunks: HashMap::new(),
-		center_x,
-		center_y,
-		center_floor,
 		description: String::new(),
 		spawn_file: String::new(),
 		house_file: String::new(),
@@ -253,9 +220,13 @@ pub(crate) fn serialize_meta(m: &MapModel) -> Vec<u8> {
 	out.extend_from_slice(&m.available_floors);
 	push_u32(&mut out, m.teleport_count);
 	out.extend_from_slice(&m.teleports);
-	push_u16(&mut out, m.center_x);
-	push_u16(&mut out, m.center_y);
-	out.push(m.center_floor);
+	let (cx, cy, cz) = match m.towns.first() {
+		Some(t) => (t.x, t.y, t.z),
+		None => ((m.min_x / 2).wrapping_add(m.max_x / 2), (m.min_y / 2).wrapping_add(m.max_y / 2), 7),
+	};
+	push_u16(&mut out, cx);
+	push_u16(&mut out, cy);
+	out.push(cz);
 	out
 }
 
@@ -650,9 +621,6 @@ pub(crate) fn empty_model(width: u16, height: u16) -> MapModel {
 		loaded_chunks: HashSet::new(),
 		chunk_ranges: HashMap::new(),
 		floor_chunks: HashMap::new(),
-		center_x: width / 2,
-		center_y: height / 2,
-		center_floor: 7,
 		description: String::new(),
 		spawn_file: String::new(),
 		house_file: String::new(),
@@ -680,11 +648,6 @@ pub(crate) fn lazy_model(width: u16, height: u16, idx: &MapIndex, source: std::p
 	let mut available_floors: Vec<u8> = floor_set.into_iter().collect();
 	available_floors.sort_unstable();
 
-	let (center_x, center_y, center_floor) = weighted_center(
-		idx.chunks.iter().map(|c| (c.z, c.cx as u32, c.cy as u32, c.count)),
-		((idx.min_x / 2).wrapping_add(idx.max_x / 2), (idx.min_y / 2).wrapping_add(idx.max_y / 2)),
-	);
-
 	MapModel {
 		width,
 		height,
@@ -708,9 +671,6 @@ pub(crate) fn lazy_model(width: u16, height: u16, idx: &MapIndex, source: std::p
 		loaded_chunks: HashSet::new(),
 		chunk_ranges,
 		floor_chunks,
-		center_x,
-		center_y,
-		center_floor,
 		description: idx.description.clone(),
 		spawn_file: idx.spawn_file.clone(),
 		house_file: idx.house_file.clone(),
