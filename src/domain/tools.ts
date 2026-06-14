@@ -1,4 +1,4 @@
-export type ToolId = 'select' | 'brush' | 'eraser';
+export type ToolId = 'select' | 'brush' | 'eraser' | 'spawn';
 
 export interface ToolMeta {
   id: ToolId;
@@ -8,5 +8,6 @@ export interface ToolMeta {
 export const TOOLS: ToolMeta[] = [
   { id: 'select', label: 'Select' },
   { id: 'brush', label: 'Brush' },
-  { id: 'eraser', label: 'Eraser' }
+  { id: 'eraser', label: 'Eraser' },
+  { id: 'spawn', label: 'Spawn' }
 ];

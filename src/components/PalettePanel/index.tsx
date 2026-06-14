@@ -38,7 +38,7 @@ interface PalettePanelProps {
   outfits: Map<number, ThingType>;
   dragHandle?: DragHandleProps;
   onSelectBrush: (brush: ActiveBrush | null) => void;
-  reveal?: { category: PaletteCategoryId; serverId: number; nonce: number } | null;
+  reveal?: { category: PaletteCategoryId; serverId: number; name?: string; nonce: number } | null;
 }
 
 interface PendingReveal {
@@ -81,9 +81,10 @@ const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle,
   React.useEffect(() => {
     if (!reveal) return;
     const order = [reveal.category, ...PALETTE_CATEGORIES.map((c) => c.id).filter((id) => id !== reveal.category)];
+    const match = (b: PaletteBrush) => (reveal.name != null ? b.name === reveal.name : b.lookServerId === reveal.serverId);
     for (const cat of order) {
-      const ts = data[cat]?.find((t) => t.brushes.some((b) => b.lookServerId === reveal.serverId));
-      const brush = ts?.brushes.find((b) => b.lookServerId === reveal.serverId);
+      const ts = data[cat]?.find((t) => t.brushes.some(match));
+      const brush = ts?.brushes.find(match);
       if (ts && brush) {
         pending.current = { category: cat, tilesetName: ts.name, key: brush.key };
         setCategory(cat);
@@ -153,7 +154,14 @@ const PalettePanel = ({ data, items, outfits, sprPath, transparency, dragHandle,
     }
     setSelectedKey(brush.key);
     if (brush.kind === 'creature') {
-      onSelectBrush({ key: brush.key, name: brush.name, kind: brush.kind, isGround: false });
+      onSelectBrush({
+        key: brush.key,
+        name: brush.name,
+        kind: brush.kind,
+        isGround: false,
+        lookType: brush.lookType,
+        isNpc: brush.isNpc
+      });
       return;
     }
     const serverId = brush.lookServerId;

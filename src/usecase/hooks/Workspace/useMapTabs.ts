@@ -26,6 +26,7 @@ export interface MapTab {
 interface MapTabsActions {
   setStatus: (status: string) => void;
   setError: (error: string | null) => void;
+  onAfterSave?: (mapId: number, path: string) => Promise<void>;
 }
 
 export interface MapTabsApi {
@@ -49,7 +50,7 @@ export interface MapTabsApi {
   setView: (cx: number, cy: number) => void;
 }
 
-export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }: MapTabsActions): MapTabsApi => {
+export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError, onAfterSave }: MapTabsActions): MapTabsApi => {
   const [tabs, setTabs] = React.useState<MapTab[]>([]);
   const [recent, setRecent] = React.useState<string[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -179,6 +180,7 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError }:
     setStatus('Saving map...');
     try {
       await saveOtbm(tab.map.id, path, (value, label) => setSaving({ value, label }));
+      await onAfterSave?.(tab.map.id, path);
       const name = path.split(/[\\/]/).pop() ?? tab.title;
       updateActive({ path, title: name });
       setStatus(`Saved ${name}`);

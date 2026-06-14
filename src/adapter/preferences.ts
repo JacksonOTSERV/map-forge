@@ -34,11 +34,15 @@ export async function saveClientConfig(config: ClientConfig): Promise<void> {
 export interface GeneralConfig {
   maxStack: number;
   copyPositionFormat: string;
+  spawnSize: number;
+  spawnTime: number;
 }
 
 export const defaultGeneralConfig: GeneralConfig = {
   maxStack: DEFAULT_MAX_STACK,
-  copyPositionFormat: DEFAULT_COPY_POSITION_FORMAT
+  copyPositionFormat: DEFAULT_COPY_POSITION_FORMAT,
+  spawnSize: 3,
+  spawnTime: 60
 };
 
 export async function loadGeneralConfig(): Promise<GeneralConfig> {

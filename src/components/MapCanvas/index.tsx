@@ -15,6 +15,19 @@ import RenderStats from './RenderStats';
 import { MapCanvasProps } from './types';
 import TileContextMenu from './TileContextMenu';
 import GotoPositionForm from './GotoPositionForm';
+import SpawnPropertiesForm from './SpawnPropertiesForm';
+import CreaturePropertiesForm from './CreaturePropertiesForm';
+
+const SPAWN_HANDLES = [
+  { key: 'nw', left: '0%', top: '0%', cursor: 'nwse-resize' },
+  { key: 'n', left: '50%', top: '0%', cursor: 'ns-resize' },
+  { key: 'ne', left: '100%', top: '0%', cursor: 'nesw-resize' },
+  { key: 'e', left: '100%', top: '50%', cursor: 'ew-resize' },
+  { key: 'se', left: '100%', top: '100%', cursor: 'nwse-resize' },
+  { key: 's', left: '50%', top: '100%', cursor: 'ns-resize' },
+  { key: 'sw', left: '0%', top: '100%', cursor: 'nesw-resize' },
+  { key: 'w', left: '0%', top: '50%', cursor: 'ew-resize' }
+];
 
 const MapCanvas = (props: MapCanvasProps) => {
   const { map, zoom, onZoomChange, activeBrush, activeTool } = props;
@@ -87,7 +100,7 @@ const MapCanvas = (props: MapCanvasProps) => {
 
   React.useEffect(() => {
     meshes.clear();
-  }, [props.spawns, props.showCreatures]);
+  }, [props.spawns, props.showSpawns, props.showCreatures]);
 
   React.useEffect(() => {
     const el = document.documentElement;
@@ -98,7 +111,7 @@ const MapCanvas = (props: MapCanvasProps) => {
   const paintable = activeTool === 'brush' && activeBrush != null && activeBrush.serverId != null;
   const canvasCursor = paintable
     ? DRAW_CURSOR
-    : activeTool === 'eraser' || interaction.boxing
+    : activeTool === 'eraser' || activeTool === 'spawn' || interaction.boxing
       ? 'crosshair'
       : camera.panning || interaction.moving
         ? 'grabbing'
@@ -139,6 +152,20 @@ const MapCanvas = (props: MapCanvasProps) => {
         style={{ transformOrigin: 'top left' }}
         className="pointer-events-none absolute left-0 top-0 hidden border border-dashed border-primary bg-primary/10"
       />
+      <div
+        ref={scene.spawnBoxRef}
+        style={{ transformOrigin: 'top left' }}
+        className="pointer-events-none absolute left-0 top-0 hidden border-2 border-dashed border-amber-400/80 bg-amber-400/5"
+      >
+        {SPAWN_HANDLES.map((h) => (
+          <div
+            key={h.key}
+            onMouseDown={(e) => interaction.beginSpawnResize(e, h.key)}
+            style={{ left: h.left, top: h.top, cursor: h.cursor, transform: 'translate(-50%, -50%)' }}
+            className="pointer-events-auto absolute h-3 w-3 rounded-sm border border-amber-200 bg-amber-400 shadow"
+          />
+        ))}
+      </div>
       {glError && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-destructive">
           WebGL unavailable: {glError}
@@ -158,11 +185,30 @@ const MapCanvas = (props: MapCanvasProps) => {
           onDelete={interaction.deleteSelected}
           onCopyPosition={interaction.copyPosition}
           onSelectGround={interaction.selectGround}
+          onSelectCreature={interaction.selectCreature}
+          onSpawnProperties={interaction.spawnProperties}
+          onCreatureProperties={interaction.creatureProperties}
         />
       )}
 
       {interaction.gotoForm && (
         <GotoPositionForm onSubmit={interaction.goTo} initial={interaction.gotoForm} onCancel={interaction.closeGoto} />
+      )}
+
+      {interaction.spawnForm && (
+        <SpawnPropertiesForm
+          initial={interaction.spawnForm}
+          onCancel={interaction.closeSpawnForm}
+          onSubmit={interaction.submitSpawnForm}
+        />
+      )}
+
+      {interaction.creatureForm && (
+        <CreaturePropertiesForm
+          initial={interaction.creatureForm}
+          onCancel={interaction.closeCreatureForm}
+          onSubmit={interaction.submitCreatureForm}
+        />
       )}
     </div>
   );

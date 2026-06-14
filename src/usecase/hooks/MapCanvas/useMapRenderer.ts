@@ -2,10 +2,11 @@ import React from 'react';
 
 import { getSpriteIndex } from '~/domain/tibia';
 import { visibleFloorRange } from '~/usecase/floors';
-import { ChunkTiles, PreviewTile } from '~/domain/map';
 import { slotUV, GLRenderer } from '~/usecase/glRenderer';
 import { packChunkKey, fetchMapChunks } from '~/adapter/map';
 import { MapCanvasProps } from '~/components/MapCanvas/types';
+import { SpawnArea, CreaturePlacement } from '~/domain/creature';
+import { Position, ChunkTiles, PreviewTile } from '~/domain/map';
 import {
   TILE,
   CHUNK,
@@ -20,9 +21,18 @@ import { MapScene } from './useMapScene';
 import { Selection } from './useSelection';
 import { MapCamera } from './useMapCamera';
 import { SpriteAtlas } from './useSpriteAtlas';
-import { buildTopItemMesh } from './meshBuilder';
 import { ChunkTilesCache } from './useChunkTiles';
 import { ChunkMeshCache } from './useChunkMeshes';
+import {
+  spawnFactor,
+  spawnTileKey,
+  buildThingGhost,
+  appendCreatures,
+  buildTopItemMesh,
+  buildCreatureGhost,
+  buildSpawnAreaGhost,
+  spawnCountsForChunk
+} from './meshBuilder';
 
 export interface StatRefs {
   fpsRef: React.RefObject<HTMLSpanElement>;
@@ -48,6 +58,7 @@ export interface RendererDeps {
 export function useMapRenderer(deps: RendererDeps) {
   const { canvasRef, gl, camera, inputs, atlas, tiles, meshes, selection, scene, stats } = deps;
   const { frameTick, lastChunksDrawn } = scene;
+  const prevPreviewKeys = React.useRef<string[]>([]);
 
   function flushTileRequests() {
     if (inputs.current.paused) return;
@@ -79,14 +90,72 @@ export function useMapRenderer(deps: RendererDeps) {
     }
   }
 
+  function spawnPreview(): { from: Position; fromRadius: number; area: SpawnArea } | null {
+    const rs = scene.spawnResize.current;
+    if (!rs) return null;
+    const a = inputs.current.spawns?.areasByZ.get(rs.center.z)?.find((x) => x.x === rs.center.x && x.y === rs.center.y);
+    return {
+      from: { x: rs.center.x, y: rs.center.y, z: rs.center.z },
+      fromRadius: a?.radius ?? rs.radius,
+      area: { x: rs.center.x, y: rs.center.y, z: rs.center.z, radius: rs.radius }
+    };
+  }
+
+  function previewChunkKeys(pv: { from: Position; fromRadius: number; area: SpawnArea }): string[] {
+    const keys = new Set<string>();
+    const add = (x: number, y: number, z: number, r: number) => {
+      for (let cy = Math.floor((y - r) / CHUNK); cy <= Math.floor((y + r) / CHUNK); cy++) {
+        for (let cx = Math.floor((x - r) / CHUNK); cx <= Math.floor((x + r) / CHUNK); cx++) {
+          keys.add(`${z},${cx},${cy}`);
+        }
+      }
+    };
+    add(pv.from.x, pv.from.y, pv.from.z, pv.fromRadius);
+    add(pv.area.x, pv.area.y, pv.area.z, pv.area.radius);
+    return [...keys];
+  }
+
   function buildChunkMesh(cx: number, cy: number, z: number, missing: Set<number>) {
-    const { items } = inputs.current;
+    const { items, outfits, spawns, showSpawns, showCreatures } = inputs.current;
     const key = `${z},${cx},${cy}`;
     const ct = tiles.data.current.get(key) as ChunkTiles | null | undefined;
     const sel = selection.entries.current;
     const useSel = sel.size > 0;
     const inst: number[] = [];
     let complete = true;
+
+    const tileKey = (x: number, y: number) => x * 65536 + y;
+    const creaturesByTile = new Map<number, CreaturePlacement[]>();
+    const chunkCreatures = showCreatures ? spawns?.byChunk.get(key) : undefined;
+    if (chunkCreatures) {
+      for (const c of chunkCreatures) {
+        const tk = tileKey(c.x, c.y);
+        const arr = creaturesByTile.get(tk);
+        if (arr) arr.push(c);
+        else creaturesByTile.set(tk, [c]);
+      }
+    }
+
+    let spawnAreas = showSpawns ? spawns?.areasByZ.get(z) : undefined;
+    if (showSpawns) {
+      const pv = spawnPreview();
+      if (pv && pv.area.z === z) {
+        spawnAreas = (spawnAreas ?? []).filter((a) => !(a.x === pv.from.x && a.y === pv.from.y)).concat([pv.area]);
+      }
+    }
+    const spawnCounts = spawnAreas ? spawnCountsForChunk(spawnAreas, cx, cy) : null;
+    const spawnCenters = new Set<number>();
+    const markerClientId = inputs.current.spawnMarkerClientId;
+    const markerThing = spawnAreas && spawnAreas.length > 0 && markerClientId ? items.get(markerClientId) : undefined;
+    if (spawnAreas) {
+      const minX = cx * CHUNK;
+      const minY = cy * CHUNK;
+      for (const a of spawnAreas) {
+        if (a.x >= minX && a.x < minX + CHUNK && a.y >= minY && a.y < minY + CHUNK) {
+          spawnCenters.add(spawnTileKey(a.x, a.y));
+        }
+      }
+    }
 
     if (ct) {
       for (let i = 0; i < ct.tileX.length; i++) {
@@ -95,6 +164,8 @@ export function useMapRenderer(deps: RendererDeps) {
         const end = ct.itemOffset[i + 1];
         const top = end - 1;
         const selEntry = useSel ? sel.get(`${z},${tx},${ty}`) : undefined;
+        const spawnCount = spawnCounts?.get(spawnTileKey(tx, ty));
+        const groundSpawn = spawnCount ? spawnFactor(spawnCount) : 1;
         let drawElevation = 0;
         for (let ii = ct.itemOffset[i]; ii < end; ii++) {
           const thing = items.get(ct.clientIds[ii]);
@@ -104,6 +175,7 @@ export function useMapRenderer(deps: RendererDeps) {
           const ox = (thing.offsetX || 0) + drawElevation;
           const oy = (thing.offsetY || 0) + drawElevation;
           const tint = selEntry ? (selEntry.all || ii === top ? 1 : 0) : 0;
+          const spawn = groundSpawn !== 1 && (thing.isGround || thing.isGroundBorder) ? groundSpawn : 1;
 
           for (let l = 0; l < thing.layers; l++) {
             for (let h = 0; h < thing.height; h++) {
@@ -124,18 +196,62 @@ export function useMapRenderer(deps: RendererDeps) {
                   continue;
                 }
                 const { u0, v0 } = slotUV(slot);
-                inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, tint);
+                inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, tint, spawn);
               }
             }
           }
 
           if (thing.hasElevation) drawElevation = Math.min(drawElevation + thing.elevation, MAX_ELEVATION);
         }
+
+        if (creaturesByTile.size > 0) {
+          const here = creaturesByTile.get(tileKey(tx, ty));
+          if (here) {
+            creaturesByTile.delete(tileKey(tx, ty));
+            const sc = selection.creature.current;
+            const cSel = !!sc && sc.z === z && sc.x === tx && sc.y === ty;
+            if (!appendCreatures(inst, here, outfits, atlas, frameTick.current, missing, cSel)) complete = false;
+          }
+        }
+
+        if (markerThing && spawnCenters.has(spawnTileKey(tx, ty))) {
+          const selSpawn = selection.spawn.current;
+          const markerTint = selSpawn && selSpawn.z === z && selSpawn.x === tx && selSpawn.y === ty ? 1 : 0;
+          for (let l = 0; l < markerThing.layers; l++) {
+            for (let h = 0; h < markerThing.height; h++) {
+              for (let w = 0; w < markerThing.width; w++) {
+                const sid = markerThing.spriteIndex[getSpriteIndex(markerThing, w, h, l, 0, 0, 0, 0)];
+                if (!sid) continue;
+                const data = atlas.data.current.get(sid);
+                if (!data) {
+                  missing.add(sid);
+                  complete = false;
+                  continue;
+                }
+                atlas.lastUsed.current.set(sid, frameTick.current);
+                if (data.empty) continue;
+                const slot = atlas.slotFor(sid, data);
+                if (slot < 0) {
+                  complete = false;
+                  continue;
+                }
+                const { u0, v0 } = slotUV(slot);
+                inst.push((tx - w) * TILE, (ty - h) * TILE, u0, v0, markerTint, 1);
+              }
+            }
+          }
+        }
       }
     }
 
+    for (const arr of creaturesByTile.values()) {
+      const sc = selection.creature.current;
+      const cSel = !!sc && arr.length > 0 && sc.z === z && sc.x === arr[0].x && sc.y === arr[0].y;
+      if (!appendCreatures(inst, arr, outfits, atlas, frameTick.current, missing, cSel)) complete = false;
+    }
+
     meshes.store(key, new Float32Array(inst), {
-      count: inst.length / 5,
+      count: inst.length / 6,
       version: atlas.version.current,
       epoch: atlas.epoch.current,
       complete,
@@ -173,7 +289,7 @@ export function useMapRenderer(deps: RendererDeps) {
               const slot = atlas.slotFor(sid, data);
               if (slot < 0) continue;
               const { u0, v0 } = slotUV(slot);
-              inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, 0);
+              inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, 0, 1);
             }
           }
         }
@@ -239,6 +355,27 @@ export function useMapRenderer(deps: RendererDeps) {
     outline.style.width = `${w}px`;
     outline.style.height = `${h}px`;
     outline.style.transform = transform;
+  }
+
+  function updateSpawnBox(camX: number, camY: number, zoom: number) {
+    const el = scene.spawnBoxRef.current;
+    if (!el) return;
+    const resize = scene.spawnResize.current;
+    const sc = selection.spawn.current;
+    const area = sc ? inputs.current.spawns?.areasByZ.get(sc.z)?.find((a) => a.x === sc.x && a.y === sc.y) : undefined;
+    const c = resize ? resize.center : sc;
+    const r = resize ? resize.radius : area?.radius;
+    if (!c || r == null || c.z !== inputs.current.floorZ || !inputs.current.showSpawns) {
+      el.style.display = 'none';
+      return;
+    }
+    const x0 = (c.x - r) * TILE;
+    const y0 = (c.y - r) * TILE;
+    const size = (2 * r + 1) * TILE * zoom;
+    el.style.display = 'block';
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.style.transform = `translate(${(x0 - camX) * zoom}px, ${(y0 - camY) * zoom}px)`;
   }
 
   function updateSelectionBox(camX: number, camY: number, zoom: number) {
@@ -349,6 +486,11 @@ export function useMapRenderer(deps: RendererDeps) {
     let builds = 0;
     let drawn = 0;
 
+    const pv = spawnPreview();
+    const curPreviewKeys = pv ? previewChunkKeys(pv) : [];
+    for (const k of new Set([...prevPreviewKeys.current, ...curPreviewKeys])) meshes.forget(k);
+    prevPreviewKeys.current = curPreviewKeys;
+
     for (let z = startZ; z >= endZ; z--) {
       if (dimLowerFloors && z === endZ) renderer.dimViewport(LOWER_FLOOR_DIM);
 
@@ -404,6 +546,31 @@ export function useMapRenderer(deps: RendererDeps) {
       renderer.drawGhost(scene.pendingMove.current, camX, camY, scale, 0.55);
     }
 
+    const mk = scene.markerDrag.current;
+    if (mk && mk.active && scene.markerDest.current) {
+      const d = scene.markerDest.current;
+      if (mk.kind === 'creature') {
+        const ghost = buildCreatureGhost(
+          mk.lookType,
+          d.x,
+          d.y,
+          floorZ,
+          inputs.current.outfits,
+          atlas,
+          frameTick.current,
+          missing
+        );
+        if (ghost) renderer.drawGhost(ghost, camX, camY, scale, 0.55);
+      } else {
+        const ctx = { items: inputs.current.items, tiles, atlas };
+        const area = buildSpawnAreaGhost(ctx, d.x, d.y, floorZ, mk.radius, frameTick.current, missing);
+        if (area) renderer.drawGhost(area, camX, camY, scale, 0.4);
+        const markerThing = inputs.current.items.get(inputs.current.spawnMarkerClientId);
+        const flame = markerThing ? buildThingGhost(markerThing, d.x, d.y, atlas, frameTick.current, missing) : null;
+        if (flame) renderer.drawGhost(flame, camX, camY, scale, 0.5);
+      }
+    }
+
     const previewTiles = scene.boxGhostTiles.current;
     if (previewTiles && previewTiles.length > 0 && selection.box.current) {
       const ghost = buildPreviewGhost(previewTiles, missing);
@@ -415,6 +582,7 @@ export function useMapRenderer(deps: RendererDeps) {
 
     updateGhost(camX, camY, zoom);
     updateSelectionBox(camX, camY, zoom);
+    updateSpawnBox(camX, camY, zoom);
 
     flushTileRequests();
     atlas.loadMissing(sprPath, missing, transparency);

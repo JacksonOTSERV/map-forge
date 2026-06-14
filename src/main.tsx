@@ -1,5 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { MapView } from '~/domain/map';
@@ -8,6 +9,7 @@ import { cornerOf } from '~/usecase/dock';
 import Toolbar from '~/components/Toolbar';
 import MapTabs from '~/components/MapTabs';
 import MapTowns from '~/components/MapTowns';
+import { MapSpawns } from '~/domain/creature';
 import MapCanvas from '~/components/MapCanvas';
 import Workspace from '~/components/Workspace';
 import { PANELS, PanelId } from '~/domain/dock';
@@ -17,6 +19,7 @@ import { MIN_ZOOM, MAX_ZOOM } from '~/usecase/zoom';
 import PalettePanel from '~/components/PalettePanel';
 import MapProperties from '~/components/MapProperties';
 import MapStatistics from '~/components/MapStatistics';
+import { serializeSpawnXml } from '~/usecase/spawnEdits';
 import Minimap, { MinimapApi } from '~/components/Minimap';
 import { getSetting, setSetting } from '~/adapter/settings';
 import PanelDockMenu from '~/components/Dock/PanelDockMenu';
@@ -27,18 +30,36 @@ import StatusBar, { StatusBarApi } from '~/components/StatusBar';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
 import { useMapTabs } from '~/usecase/hooks/Workspace/useMapTabs';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
+import { getMapProperties, setMapProperties } from '~/adapter/map';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
+import { useMapSpawns } from '~/usecase/hooks/Workspace/useMapSpawns';
 import { useAppShortcuts } from '~/usecase/hooks/Workspace/useAppShortcuts';
 import { loadGeneralConfig, defaultGeneralConfig } from '~/adapter/preferences';
 
 import './styles/index.css';
 
+const SPAWN_TIME_DEFAULT = 60;
+const SPAWN_RADIUS_DEFAULT = 3;
+
+const dirOf = (path: string) => path.replace(/[^\\/]+$/, '');
+const spawnFileFallback = (path: string) => (path.split(/[\\/]/).pop() ?? 'map.otbm').replace(/\.otbm$/i, '-spawn.xml');
+
 const App = () => {
   const [activeBrush, setActiveBrush] = React.useState<ActiveBrush | null>(null);
-  const [reveal, setReveal] = React.useState<{ category: PaletteCategoryId; serverId: number; nonce: number } | null>(null);
+  const [reveal, setReveal] = React.useState<{
+    category: PaletteCategoryId;
+    serverId: number;
+    name?: string;
+    nonce: number;
+  } | null>(null);
   const [activeTool, setActiveTool] = React.useState<ToolId>('select');
   const [automagic, setAutomagic] = React.useState(true);
   const [minimapOpen, setMinimapOpen] = React.useState(false);
+  const [showCreatures, setShowCreatures] = React.useState(true);
+  const [showSpawns, setShowSpawns] = React.useState(true);
+  const [autoCreateSpawn, setAutoCreateSpawn] = React.useState(true);
+  const [spawnSize, setSpawnSize] = React.useState(SPAWN_RADIUS_DEFAULT);
+  const [spawnTime, setSpawnTime] = React.useState(SPAWN_TIME_DEFAULT);
   const [townsOpen, setTownsOpen] = React.useState(false);
   const [mapPropsOpen, setMapPropsOpen] = React.useState(false);
   const [statsOpen, setStatsOpen] = React.useState(false);
@@ -50,9 +71,31 @@ const App = () => {
   const statusApiRef = React.useRef<StatusBarApi | null>(null);
   const minimapApiRef = React.useRef<MinimapApi | null>(null);
   const mapCenterRef = React.useRef<((x: number, y: number) => void) | null>(null);
+  const spawnsRef = React.useRef<MapSpawns | null>(null);
+  const spawnsDirty = React.useRef(false);
 
   const handleHover = React.useCallback((info: HoverInfo | null) => statusApiRef.current?.setHover(info), []);
   const handleSelect = React.useCallback((item: HoverItem | null) => statusApiRef.current?.setSelectedItem(item), []);
+
+  const persistSpawns = React.useCallback(async (mapId: number, path: string) => {
+    if (!spawnsDirty.current || !spawnsRef.current) return;
+    const props = await getMapProperties(mapId).catch(() => null);
+    let file = props?.spawnFile ?? '';
+    if (!file) {
+      file = spawnFileFallback(path);
+      if (props) {
+        await setMapProperties(mapId, {
+          description: props.description,
+          spawnFile: file,
+          houseFile: props.houseFile,
+          otbmVersion: props.otbmVersion,
+          itemsMinor: props.itemsMinor
+        }).catch(() => undefined);
+      }
+    }
+    await invoke('write_file_text', { path: dirOf(path) + file, contents: serializeSpawnXml(spawnsRef.current) });
+    spawnsDirty.current = false;
+  }, []);
 
   const { assets, palette, status, error, minimapReady, setStatus, setError } = useAssets();
   const {
@@ -74,7 +117,21 @@ const App = () => {
     setFloorZ,
     setZoom,
     setView
-  } = useMapTabs(assets, { setStatus, setError });
+  } = useMapTabs(assets, { setStatus, setError, onAfterSave: persistSpawns });
+
+  const { spawns, setSpawns } = useMapSpawns(
+    active ? { id: active.id, path: active.path, mapId: active.map.id } : null,
+    assets?.creatures ?? null
+  );
+  spawnsRef.current = spawns;
+
+  const handleEditSpawns = React.useCallback(
+    (next: MapSpawns) => {
+      setSpawns(next);
+      spawnsDirty.current = true;
+    },
+    [setSpawns]
+  );
 
   const isContentReady = (id: PanelId) => {
     if (id === 'minimap') return minimapOpen && !!assets && !!active && minimapReady;
@@ -102,13 +159,34 @@ const App = () => {
     void setSetting('minimapOpen', false);
   };
 
+  const toggleCreatures = () =>
+    setShowCreatures((v) => {
+      const next = !v;
+      void setSetting('showCreatures', next);
+      return next;
+    });
+
+  const toggleSpawns = () =>
+    setShowSpawns((v) => {
+      const next = !v;
+      void setSetting('showSpawns', next);
+      return next;
+    });
+
+  const toggleAutoSpawn = () =>
+    setAutoCreateSpawn((v) => {
+      const next = !v;
+      void setSetting('autoCreateSpawn', next);
+      return next;
+    });
+
   const selectBrush = (brush: ActiveBrush | null) => {
     setActiveBrush(brush);
     setActiveTool(brush ? 'brush' : 'select');
   };
 
-  const revealInPalette = (category: PaletteCategoryId, serverId: number) => {
-    setReveal((r) => ({ category, serverId, nonce: (r?.nonce ?? 0) + 1 }));
+  const revealInPalette = (category: PaletteCategoryId, serverId: number, name?: string) => {
+    setReveal((r) => ({ category, serverId, name, nonce: (r?.nonce ?? 0) + 1 }));
   };
 
   const openEditTowns = () => {
@@ -161,14 +239,31 @@ const App = () => {
     void getSetting('minimapOpen', false).then(setMinimapOpen);
   }, []);
 
+  React.useEffect(() => {
+    void getSetting('showCreatures', true).then(setShowCreatures);
+  }, []);
+
+  React.useEffect(() => {
+    void getSetting('showSpawns', true).then(setShowSpawns);
+  }, []);
+
+  React.useEffect(() => {
+    void getSetting('autoCreateSpawn', true).then(setAutoCreateSpawn);
+  }, []);
+
   const reloadGeneral = React.useCallback(() => {
-    void loadGeneralConfig().then((g) => setCopyPositionFormat(g.copyPositionFormat));
+    void loadGeneralConfig().then((g) => {
+      setCopyPositionFormat(g.copyPositionFormat);
+      setSpawnSize(g.spawnSize);
+      setSpawnTime(g.spawnTime);
+    });
   }, []);
 
   React.useEffect(reloadGeneral, [reloadGeneral]);
 
   React.useEffect(() => {
     statusApiRef.current?.setSelectedItem(null);
+    spawnsDirty.current = false;
   }, [activeId]);
 
   const panelMenu = (id: PanelId) => {
@@ -189,8 +284,14 @@ const App = () => {
           dragHandle={handle}
           automagic={automagic}
           activeTool={activeTool}
+          showSpawns={showSpawns}
           onSelectTool={setActiveTool}
+          showCreatures={showCreatures}
+          onToggleSpawns={toggleSpawns}
+          autoCreateSpawn={autoCreateSpawn}
           onToggleAutomagic={toggleAutomagic}
+          onToggleCreatures={toggleCreatures}
+          onToggleAutoSpawn={toggleAutoSpawn}
         />
       );
     }
@@ -277,6 +378,7 @@ const App = () => {
         {active && assets ? (
           <MapCanvas
             key={active.id}
+            spawns={spawns}
             map={active.map}
             paused={!!saving}
             zoom={active.zoom}
@@ -286,11 +388,15 @@ const App = () => {
             viewRef={mapViewRef}
             onHover={handleHover}
             automagic={automagic}
+            spawnTime={spawnTime}
             floorZ={active.floorZ}
             onZoomChange={setZoom}
             onViewChange={setView}
             activeTool={activeTool}
             onSelect={handleSelect}
+            showSpawns={showSpawns}
+            spawnRadius={spawnSize}
+            outfits={assets.outfits}
             sprPath={assets.sprPath}
             centerRef={mapCenterRef}
             activeBrush={activeBrush}
@@ -298,10 +404,14 @@ const App = () => {
             onSelectBrush={selectBrush}
             onToolChange={setActiveTool}
             itemNames={assets.itemNames}
+            showCreatures={showCreatures}
             initialCenter={active.center}
             onRevealBrush={revealInPalette}
+            onEditSpawns={handleEditSpawns}
+            autoCreateSpawn={autoCreateSpawn}
             transparency={assets.transparency}
             copyPositionFormat={copyPositionFormat}
+            spawnMarkerClientId={assets.spawnMarkerClientId}
             onEdit={(z) => minimapApiRef.current?.markDirty(z)}
           />
         ) : (

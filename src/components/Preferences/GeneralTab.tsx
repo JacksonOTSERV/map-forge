@@ -60,6 +60,38 @@ const GeneralTab = ({ config, onResetLayout, onChange }: GeneralTabProps) => {
 
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col">
+          <span className="text-xs font-medium">Default spawn size</span>
+          <span className="text-[10px] text-muted-foreground">Radius used when placing creatures and spawns</span>
+        </div>
+        <input
+          min={1}
+          type="number"
+          value={config.spawnSize}
+          onChange={(e) => onChange({ ...config, spawnSize: Math.max(1, Number(e.target.value)) })}
+          className="h-7 w-16 rounded border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-ring"
+        />
+      </div>
+
+      <div className="h-px bg-border" />
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col">
+          <span className="text-xs font-medium">Default spawn time</span>
+          <span className="text-[10px] text-muted-foreground">Respawn time (seconds) for placed creatures</span>
+        </div>
+        <input
+          min={1}
+          type="number"
+          value={config.spawnTime}
+          onChange={(e) => onChange({ ...config, spawnTime: Math.max(1, Number(e.target.value)) })}
+          className="h-7 w-16 rounded border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-ring"
+        />
+      </div>
+
+      <div className="h-px bg-border" />
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col">
           <span className="text-xs font-medium">Panel layout</span>
           <span className="text-[10px] text-muted-foreground">Restore docks and floating panels to defaults</span>
         </div>

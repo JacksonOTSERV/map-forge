@@ -25,6 +25,11 @@ pub fn read_file_text(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn write_file_text(path: String, contents: String) -> Result<(), String> {
+	fs::write(&path, contents).map_err(|e| format!("Failed to write file {}: {}", path, e))
+}
+
+#[tauri::command]
 pub fn read_file_header(path: String, bytes: usize) -> Result<FileBytes, String> {
 	use std::io::Read;
 	let mut file = fs::File::open(&path).map_err(|e| format!("Failed to open file {}: {}", path, e))?;

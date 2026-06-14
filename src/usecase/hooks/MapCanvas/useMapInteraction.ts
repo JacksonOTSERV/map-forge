@@ -3,8 +3,20 @@ import React from 'react';
 import { Position } from '~/domain/map';
 import { buildItemPreview } from '~/usecase/itemPreview';
 import { formatPosition } from '~/usecase/positionFormat';
-import { CHUNK, MOVE_THRESHOLD_SQ } from '~/components/MapCanvas/constants';
-import { HoverInfo, HoverItem, MapCanvasProps, ContextMenuState } from '~/components/MapCanvas/types';
+import { MapSpawns, emptyMapSpawns } from '~/domain/creature';
+import { TILE, CHUNK, MOVE_THRESHOLD_SQ } from '~/components/MapCanvas/constants';
+import { HoverInfo, HoverItem, SpawnForm, CreatureForm, MapCanvasProps, ContextMenuState } from '~/components/MapCanvas/types';
+import {
+  moveSpawn,
+  placeSpawn,
+  updateSpawn,
+  setSpawnSize,
+  moveCreature,
+  placeCreature,
+  removeSpawnAt,
+  updateCreature,
+  removeCreatureAt
+} from '~/usecase/spawnEdits';
 import {
   moveItem,
   undoEdit,
@@ -28,6 +40,8 @@ import { ChunkTilesCache } from './useChunkTiles';
 import { ChunkMeshCache } from './useChunkMeshes';
 import { Selection, BoxSelection } from './useSelection';
 
+type EditEntry = { kind: 'item' } | { kind: 'spawn'; before: MapSpawns; after: MapSpawns };
+
 export interface InteractionDeps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   camera: MapCamera;
@@ -46,10 +60,230 @@ export function useMapInteraction(deps: InteractionDeps) {
   const [boxing, setBoxing] = React.useState(false);
   const [menu, setMenu] = React.useState<ContextMenuState | null>(null);
   const [gotoForm, setGotoForm] = React.useState<Position | null>(null);
+  const [spawnForm, setSpawnForm] = React.useState<SpawnForm | null>(null);
+  const [creatureForm, setCreatureForm] = React.useState<CreatureForm | null>(null);
   const clipboardCount = React.useRef(0);
+  const modalOpen = React.useRef(false);
+  modalOpen.current = spawnForm !== null || creatureForm !== null;
+
+  const undoTimeline = React.useRef<EditEntry[]>([]);
+  const redoTimeline = React.useRef<EditEntry[]>([]);
+
+  function recordItemEdit() {
+    undoTimeline.current.push({ kind: 'item' });
+    redoTimeline.current = [];
+  }
+
+  function editSpawns(next: MapSpawns) {
+    undoTimeline.current.push({ kind: 'spawn', before: inputs.current.spawns ?? emptyMapSpawns(), after: next });
+    redoTimeline.current = [];
+    inputs.current.onEditSpawns(next);
+  }
 
   const tileAt = (e: React.MouseEvent) => camera.tileUnderCursor(e, inputs.current.floorZ);
   const notifyEdit = (z: number) => inputs.current.onEdit?.(z);
+
+  const spawnCenterAt = (pos: Position): boolean => {
+    const areas = inputs.current.spawns?.areasByZ.get(pos.z);
+    return !!areas && areas.some((a) => a.x === pos.x && a.y === pos.y);
+  };
+
+  const creatureAt = (pos: Position): boolean => {
+    const key = `${pos.z},${Math.floor(pos.x / CHUNK)},${Math.floor(pos.y / CHUNK)}`;
+    const arr = inputs.current.spawns?.byChunk.get(key);
+    return !!arr && arr.some((c) => c.x === pos.x && c.y === pos.y);
+  };
+
+  const creatureLookAt = (pos: Position): number => {
+    const key = `${pos.z},${Math.floor(pos.x / CHUNK)},${Math.floor(pos.y / CHUNK)}`;
+    const arr = inputs.current.spawns?.byChunk.get(key);
+    return arr?.find((c) => c.x === pos.x && c.y === pos.y)?.lookType ?? 0;
+  };
+
+  const spawnRadiusAt = (pos: Position): number => {
+    const areas = inputs.current.spawns?.areasByZ.get(pos.z);
+    return areas?.find((a) => a.x === pos.x && a.y === pos.y)?.radius ?? 0;
+  };
+
+  function selectByPriority(pos: Position): boolean {
+    if (spawnCenterAt(pos)) {
+      selection.clear();
+      selection.selectSpawn(pos);
+      return true;
+    }
+    if (creatureAt(pos)) {
+      selection.clear();
+      selection.selectCreature(pos);
+      return true;
+    }
+    return false;
+  }
+
+  const creatureStroke = React.useRef<MapSpawns | null>(null);
+
+  function applyCreatureAt(pos: Position) {
+    const b = inputs.current.activeBrush;
+    if (!b || b.kind !== 'creature' || !b.lookType) return;
+    const key = `${pos.x},${pos.y},${pos.z}`;
+    if (key === scene.lastPaintKey.current) return;
+    scene.lastPaintKey.current = key;
+    const base = inputs.current.spawns ?? emptyMapSpawns();
+    const next = placeCreature(
+      base,
+      pos,
+      { name: b.name, isNpc: !!b.isNpc, lookType: b.lookType },
+      inputs.current.spawnTime,
+      inputs.current.spawnRadius,
+      inputs.current.autoCreateSpawn
+    );
+    if (next !== base) inputs.current.onEditSpawns(next);
+  }
+
+  function beginCreatureStroke(e: React.MouseEvent) {
+    creatureStroke.current = inputs.current.spawns ?? emptyMapSpawns();
+    scene.lastPaintKey.current = null;
+    applyCreatureAt(tileAt(e));
+  }
+
+  function finishCreatureStroke() {
+    const before = creatureStroke.current;
+    creatureStroke.current = null;
+    scene.lastPaintKey.current = null;
+    if (!before) return;
+    const after = inputs.current.spawns ?? emptyMapSpawns();
+    if (before !== after) {
+      undoTimeline.current.push({ kind: 'spawn', before, after });
+      redoTimeline.current = [];
+    }
+  }
+
+  function beginMarkerDrag(e: React.MouseEvent, pos: Position) {
+    const kind = selection.spawn.current ? 'spawn' : 'creature';
+    const lookType = kind === 'creature' ? creatureLookAt(pos) : 0;
+    const radius = kind === 'spawn' ? spawnRadiusAt(pos) : 0;
+    scene.markerDrag.current = { kind, from: pos, lookType, radius, startX: e.clientX, startY: e.clientY, active: false };
+    scene.markerDest.current = pos;
+    const move = (ev: MouseEvent) => {
+      const md = scene.markerDrag.current;
+      if (!md) return;
+      if (!md.active) {
+        const dx = ev.clientX - md.startX;
+        const dy = ev.clientY - md.startY;
+        if (dx * dx + dy * dy > MOVE_THRESHOLD_SQ) {
+          md.active = true;
+          setMoving(true);
+        }
+      }
+      if (md.active) scene.markerDest.current = tileFromClient(ev.clientX, ev.clientY);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      finishMarkerMove();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
+  function finishMarkerMove() {
+    const md = scene.markerDrag.current;
+    const dest = scene.markerDest.current;
+    scene.markerDrag.current = null;
+    scene.markerDest.current = null;
+    if (!md) return;
+    setMoving(false);
+    if (!md.active || !dest || (dest.x === md.from.x && dest.y === md.from.y)) return;
+    const base = inputs.current.spawns ?? emptyMapSpawns();
+    if (md.kind === 'creature') {
+      editSpawns(moveCreature(base, md.from, dest));
+      selection.selectCreature(dest);
+    } else {
+      editSpawns(moveSpawn(base, md.from, dest));
+      selection.selectSpawn(dest);
+    }
+  }
+
+  function tileFromClient(clientX: number, clientY: number): Position {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    const z = camera.zoomRef.current;
+    const wx = camera.ref.current.x + (clientX - rect.left) / z;
+    const wy = camera.ref.current.y + (clientY - rect.top) / z;
+    return { x: Math.floor(wx / TILE), y: Math.floor(wy / TILE), z: inputs.current.floorZ };
+  }
+
+  function beginSpawnResize(e: React.MouseEvent, handle: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (modalOpen.current) return;
+    const center0 = selection.spawn.current;
+    if (!center0) return;
+    setMoving(true);
+    const r0 = spawnRadiusAt(center0);
+    const sx = handle.includes('w') ? -1 : handle.includes('e') ? 1 : 0;
+    const sy = handle.includes('n') ? -1 : handle.includes('s') ? 1 : 0;
+    const ax = sx > 0 ? center0.x - r0 : sx < 0 ? center0.x + r0 : center0.x;
+    const ay = sy > 0 ? center0.y - r0 : sy < 0 ? center0.y + r0 : center0.y;
+    scene.spawnResize.current = { center: center0, radius: r0 };
+
+    const move = (ev: MouseEvent) => {
+      const t = tileFromClient(ev.clientX, ev.clientY);
+      const dx = sx !== 0 ? Math.abs(t.x - ax) : 0;
+      const dy = sy !== 0 ? Math.abs(t.y - ay) : 0;
+      const r = Math.max(1, Math.round(Math.max(dx, dy) / 2));
+      const cx = sx > 0 ? ax + r : sx < 0 ? ax - r : center0.x;
+      const cy = sy > 0 ? ay + r : sy < 0 ? ay - r : center0.y;
+      scene.spawnResize.current = { center: { x: cx, y: cy, z: center0.z }, radius: r };
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      const final = scene.spawnResize.current;
+      scene.spawnResize.current = null;
+      setMoving(false);
+      if (!final) return;
+      const moved = final.center.x !== center0.x || final.center.y !== center0.y;
+      if (!moved && final.radius === r0) return;
+      let base = inputs.current.spawns ?? emptyMapSpawns();
+      if (moved) base = moveSpawn(base, center0, final.center);
+      base = setSpawnSize(base, final.center, final.radius);
+      editSpawns(base);
+      selection.selectSpawn(final.center);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
+  function openSpawnProperties(center: Position) {
+    const base = inputs.current.spawns;
+    const area = base?.areasByZ.get(center.z)?.find((a) => a.x === center.x && a.y === center.y);
+    if (!area) return;
+    const member = base?.placements.find(
+      (p) => p.z === center.z && Math.max(Math.abs(p.x - center.x), Math.abs(p.y - center.y)) <= area.radius
+    );
+    setSpawnForm({ x: center.x, y: center.y, z: center.z, radius: area.radius, spawntime: member?.spawntime ?? 60 });
+    setMenu(null);
+  }
+
+  function submitSpawnForm(form: SpawnForm) {
+    const base = inputs.current.spawns ?? emptyMapSpawns();
+    editSpawns(updateSpawn(base, { x: form.x, y: form.y, z: form.z }, form.radius, form.spawntime));
+    setSpawnForm(null);
+  }
+
+  function openCreatureProperties(pos: Position) {
+    const key = `${pos.z},${Math.floor(pos.x / CHUNK)},${Math.floor(pos.y / CHUNK)}`;
+    const c = inputs.current.spawns?.byChunk.get(key)?.find((p) => p.x === pos.x && p.y === pos.y);
+    if (!c) return;
+    setCreatureForm({ x: pos.x, y: pos.y, z: pos.z, name: c.name, spawntime: c.spawntime, direction: c.direction });
+    setMenu(null);
+  }
+
+  function submitCreatureForm(form: CreatureForm) {
+    const base = inputs.current.spawns ?? emptyMapSpawns();
+    editSpawns(updateCreature(base, { x: form.x, y: form.y, z: form.z }, form.spawntime, form.direction));
+    setCreatureForm(null);
+  }
 
   const previewKey = React.useRef<string | null>(null);
   const previewSeq = React.useRef(0);
@@ -252,6 +486,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       dest.x - from.x,
       dest.y - from.y
     );
+    recordItemEdit();
     moveItem(inputs.current.map.id, from.z, from.x, from.y, dest.x, dest.y, inputs.current.automagic)
       .then((touched) => refetchKeysNow(touched, from.z))
       .then(() => {
@@ -266,12 +501,26 @@ export function useMapInteraction(deps: InteractionDeps) {
   }
 
   function deleteSelected() {
+    const base = inputs.current.spawns ?? emptyMapSpawns();
+    if (selection.creature.current) {
+      editSpawns(removeCreatureAt(base, selection.creature.current));
+      selection.selectCreature(null);
+      inputs.current.onSelect(null);
+      return;
+    }
+    if (selection.spawn.current) {
+      editSpawns(removeSpawnAt(base, selection.spawn.current));
+      selection.selectSpawn(null);
+      inputs.current.onSelect(null);
+      return;
+    }
     const selTiles = [...selection.entries.current.values()];
     if (selTiles.length === 0) return;
     const z = selTiles[0].z;
     const xs = selTiles.map((t) => t.x);
     const ys = selTiles.map((t) => t.y);
     const all = selTiles.map((t) => t.all);
+    recordItemEdit();
     deleteSelection(inputs.current.map.id, z, xs, ys, all, inputs.current.automagic)
       .then((touched) => {
         selection.clear();
@@ -306,6 +555,7 @@ export function useMapInteraction(deps: InteractionDeps) {
 
   function pasteAt(pos: Position) {
     if (clipboardCount.current === 0) return;
+    recordItemEdit();
     pasteSelection(inputs.current.map.id, pos.x, pos.y, pos.z)
       .then((touched) => refetchKeysNow(touched, pos.z))
       .then(() => {
@@ -349,19 +599,52 @@ export function useMapInteraction(deps: InteractionDeps) {
       .catch((err) => console.error('Failed to refresh after history', err));
   }
 
-  function undo() {
-    undoEdit(inputs.current.map.id)
-      .then(applyHistory)
-      .catch((err) => console.error('Undo failed', err));
+  async function undo() {
+    while (undoTimeline.current.length > 0) {
+      const e = undoTimeline.current.pop()!;
+      if (e.kind === 'spawn') {
+        redoTimeline.current.push(e);
+        inputs.current.onEditSpawns(e.before);
+        return;
+      }
+      try {
+        const touched = await undoEdit(inputs.current.map.id);
+        if (touched.length > 0) {
+          redoTimeline.current.push(e);
+          applyHistory(touched);
+          return;
+        }
+      } catch (err) {
+        console.error('Undo failed', err);
+        return;
+      }
+    }
   }
 
-  function redo() {
-    redoEdit(inputs.current.map.id)
-      .then(applyHistory)
-      .catch((err) => console.error('Redo failed', err));
+  async function redo() {
+    while (redoTimeline.current.length > 0) {
+      const e = redoTimeline.current.pop()!;
+      if (e.kind === 'spawn') {
+        undoTimeline.current.push(e);
+        inputs.current.onEditSpawns(e.after);
+        return;
+      }
+      try {
+        const touched = await redoEdit(inputs.current.map.id);
+        if (touched.length > 0) {
+          undoTimeline.current.push(e);
+          applyHistory(touched);
+          return;
+        }
+      } catch (err) {
+        console.error('Redo failed', err);
+        return;
+      }
+    }
   }
 
   function onMouseDown(e: React.MouseEvent) {
+    if (modalOpen.current) return;
     if (e.button === 1) {
       e.preventDefault();
       camera.beginPan(e);
@@ -382,25 +665,46 @@ export function useMapInteraction(deps: InteractionDeps) {
     if (canBrush) {
       scene.painting.current = true;
       scene.lastPaintKey.current = null;
+      recordItemEdit();
       paintAt(tileAt(e));
+      return;
+    }
+    if (tool === 'brush' && brush && brush.kind === 'creature') {
+      beginCreatureStroke(e);
+      return;
+    }
+    if (tool === 'spawn') {
+      const pos = tileAt(e);
+      const base = inputs.current.spawns ?? emptyMapSpawns();
+      editSpawns(placeSpawn(base, pos, inputs.current.spawnRadius));
+      selection.clear();
+      selection.selectSpawn(pos);
       return;
     }
     if (tool === 'eraser') {
       scene.erasing.current = true;
       scene.lastPaintKey.current = null;
+      recordItemEdit();
       eraseAt(tileAt(e));
       return;
     }
 
     const pos = tileAt(e);
-    selection.selectTile(pos, false);
-    scene.moveDest.current = pos;
-    scene.moveDrag.current = { from: pos, startX: e.clientX, startY: e.clientY, active: false };
+    if (selectByPriority(pos)) {
+      beginMarkerDrag(e, pos);
+    } else {
+      selection.selectTile(pos, false);
+      scene.moveDest.current = pos;
+      scene.moveDrag.current = { from: pos, startX: e.clientX, startY: e.clientY, active: false };
+    }
     inputs.current.onSelect(hoverAt(pos).item);
   }
 
   function onMouseMove(e: React.MouseEvent) {
-    if (scene.painting.current) {
+    if (modalOpen.current) return;
+    if (creatureStroke.current) {
+      applyCreatureAt(tileAt(e));
+    } else if (scene.painting.current) {
       paintAt(tileAt(e));
     } else if (scene.erasing.current) {
       eraseAt(tileAt(e));
@@ -439,8 +743,10 @@ export function useMapInteraction(deps: InteractionDeps) {
       clearBoxPreview();
       const tool = inputs.current.activeTool;
       if (tool === 'brush') {
+        recordItemEdit();
         paintBox(bs);
       } else if (tool === 'eraser') {
+        recordItemEdit();
         eraseBox(bs);
       } else {
         selection.selectBox(bs.startTile.z, bs.startTile.x, bs.startTile.y, bs.curTile.x, bs.curTile.y, bs.additive);
@@ -448,6 +754,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       }
     }
     finishMove();
+    finishCreatureStroke();
     camera.endPan();
     scene.painting.current = false;
     scene.erasing.current = false;
@@ -461,6 +768,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     setBoxing(false);
     clearBoxPreview();
     finishMove();
+    finishCreatureStroke();
     scene.painting.current = false;
     scene.erasing.current = false;
     scene.lastPaintKey.current = null;
@@ -478,23 +786,28 @@ export function useMapInteraction(deps: InteractionDeps) {
 
   function onContextMenu(e: React.MouseEvent) {
     e.preventDefault();
-    if (!canvasRef.current) return;
+    if (modalOpen.current || !canvasRef.current) return;
     if (inputs.current.activeBrush) inputs.current.onSelectBrush(null);
     if (inputs.current.activeTool !== 'select') inputs.current.onToolChange('select');
     const tile = tileAt(e);
     const info = hoverAt(tile);
-    selection.selectTile(tile, false);
+    if (!selectByPriority(tile)) selection.selectTile(tile, false);
     inputs.current.onSelect(info.item);
     inputs.current.onHover(info);
     const dest = inputs.current.map.teleports.get(`${tile.x},${tile.y},${tile.z}`) ?? null;
+    const spawnSel = selection.spawn.current;
+    const creatureSel = selection.creature.current;
+    const onMarker = !!spawnSel || !!creatureSel;
     setMenu({
       clientX: e.clientX,
       clientY: e.clientY,
       tile,
       dest,
-      item: info.item,
-      ground: groundAt(tile),
-      hasSelection: selection.entries.current.size > 0,
+      item: onMarker ? null : info.item,
+      ground: onMarker ? null : groundAt(tile),
+      spawn: spawnSel ? { x: spawnSel.x, y: spawnSel.y, z: spawnSel.z } : null,
+      creature: creatureSel ? { x: creatureSel.x, y: creatureSel.y, z: creatureSel.z } : null,
+      hasSelection: selection.entries.current.size > 0 || !!selection.spawn.current || !!selection.creature.current,
       canPaste: clipboardCount.current > 0
     });
   }
@@ -515,6 +828,22 @@ export function useMapInteraction(deps: InteractionDeps) {
     setMenu(null);
   }
 
+  function selectCreatureBrush(pos: Position) {
+    const key = `${pos.z},${Math.floor(pos.x / CHUNK)},${Math.floor(pos.y / CHUNK)}`;
+    const c = inputs.current.spawns?.byChunk.get(key)?.find((p) => p.x === pos.x && p.y === pos.y);
+    if (!c) return;
+    inputs.current.onSelectBrush({
+      key: `creature:${c.name}`,
+      name: c.name,
+      kind: 'creature',
+      isGround: false,
+      lookType: c.lookType,
+      isNpc: c.isNpc
+    });
+    inputs.current.onRevealBrush?.('creature', 0, c.name);
+    setMenu(null);
+  }
+
   React.useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -530,6 +859,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (modalOpen.current) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) {
@@ -558,7 +888,7 @@ export function useMapInteraction(deps: InteractionDeps) {
         if (t) pasteAt(t);
         return;
       }
-      if (e.key === 'Delete' && selection.entries.current.size > 0) {
+      if (e.key === 'Delete' && (selection.entries.current.size > 0 || selection.spawn.current || selection.creature.current)) {
         e.preventDefault();
         deleteSelected();
       }
@@ -573,6 +903,16 @@ export function useMapInteraction(deps: InteractionDeps) {
     boxing,
     menu,
     gotoForm,
+    spawnForm,
+    creatureForm,
+    beginSpawnResize,
+    submitSpawnForm,
+    closeSpawnForm: () => setSpawnForm(null),
+    spawnProperties: openSpawnProperties,
+    submitCreatureForm,
+    closeCreatureForm: () => setCreatureForm(null),
+    creatureProperties: openCreatureProperties,
+    selectCreature: selectCreatureBrush,
     selectRaw,
     selectGround,
     goTo,

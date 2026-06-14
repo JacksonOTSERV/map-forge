@@ -30,7 +30,7 @@ mod map_save;
 use commands::{
 	all_server_ids, close_spr_file, load_materials, load_otb, map_client_ids, open_spr_file, parse_dat_file_bin, read_file,
 	read_file_header,
-	read_file_text, read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic,
+	read_file_text, read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic, write_file_text,
 };
 use map_edit::{
 	copy_selection, delete_item, delete_selection, erase_area, move_item, paint_tiles, paste_selection, preview_paint, CopyBuffer,
@@ -76,6 +76,7 @@ pub fn run() {
 		.invoke_handler(tauri::generate_handler![
 			read_file,
 			read_file_text,
+			write_file_text,
 			read_file_header,
 			open_spr_file,
 			close_spr_file,

@@ -8,6 +8,7 @@ layout(location=0) in vec2 aCorner;
 layout(location=1) in vec2 aPos;
 layout(location=2) in vec2 aUV;
 layout(location=3) in float aTint;
+layout(location=4) in float aSpawn;
 uniform vec2 uCam;
 uniform float uScale;
 uniform float uSnap;
@@ -16,6 +17,7 @@ uniform vec2 uFloorOffset;
 out vec2 vUV;
 out vec2 vSlot;
 out float vTint;
+out float vSpawn;
 const float T = ${TILE.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
@@ -27,6 +29,7 @@ void main() {
 	vUV = aUV + aCorner * (T / A);
 	vSlot = aUV;
 	vTint = aTint;
+	vSpawn = aSpawn;
 }`;
 
 const FRAG_SRC = `#version 300 es
@@ -34,6 +37,7 @@ precision highp float;
 in vec2 vUV;
 in vec2 vSlot;
 in float vTint;
+in float vSpawn;
 uniform sampler2D uAtlas;
 uniform float uScale;
 out vec4 frag;
@@ -65,13 +69,15 @@ void main() {
 		}
 	}
 	if (c.a < 0.01) discard;
-	frag = vec4(mix(c.rgb, vec3(0.0), vTint * 0.45), c.a);
+	vec3 col = c.rgb * vec3(1.0, vSpawn, vSpawn);
+	frag = vec4(mix(col, vec3(0.0), vTint * 0.45), c.a);
 }`;
 
 const GHOST_FRAG_SRC = `#version 300 es
 precision highp float;
 in vec2 vUV;
 in vec2 vSlot;
+in float vSpawn;
 uniform sampler2D uAtlas;
 uniform float uAlpha;
 out vec4 frag;
@@ -82,7 +88,7 @@ void main() {
 	vec2 hi = vSlot * A + (T - 0.5);
 	vec4 c = texture(uAtlas, clamp(vUV * A, lo, hi) / A);
 	if (c.a < 0.01) discard;
-	frag = vec4(c.rgb, c.a * uAlpha);
+	frag = vec4(c.rgb * vec3(1.0, vSpawn, vSpawn), c.a * uAlpha);
 }`;
 
 const DIM_VERT_SRC = `#version 300 es
@@ -99,7 +105,7 @@ void main() {
 	frag = uColor;
 }`;
 
-const FLOATS_PER_INSTANCE = 5;
+const FLOATS_PER_INSTANCE = 6;
 const INSTANCE_STRIDE = FLOATS_PER_INSTANCE * 4;
 
 export function slotUV(slot: number): { u0: number; v0: number } {
@@ -178,6 +184,8 @@ export class GLRenderer {
     gl.vertexAttribDivisor(2, 1);
     gl.enableVertexAttribArray(3);
     gl.vertexAttribDivisor(3, 1);
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribDivisor(4, 1);
     gl.bindVertexArray(null);
 
     this.hlVao = gl.createVertexArray()!;
@@ -194,6 +202,9 @@ export class GLRenderer {
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(2, 2, gl.FLOAT, false, INSTANCE_STRIDE, 8);
     gl.vertexAttribDivisor(2, 1);
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(4, 1, gl.FLOAT, false, INSTANCE_STRIDE, 20);
+    gl.vertexAttribDivisor(4, 1);
     gl.bindVertexArray(null);
 
     this.atlas = gl.createTexture()!;
@@ -308,6 +319,7 @@ export class GLRenderer {
     gl.vertexAttribPointer(1, 2, gl.FLOAT, false, INSTANCE_STRIDE, 0);
     gl.vertexAttribPointer(2, 2, gl.FLOAT, false, INSTANCE_STRIDE, 8);
     gl.vertexAttribPointer(3, 1, gl.FLOAT, false, INSTANCE_STRIDE, 16);
+    gl.vertexAttribPointer(4, 1, gl.FLOAT, false, INSTANCE_STRIDE, 20);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, mesh.count);
   }
 

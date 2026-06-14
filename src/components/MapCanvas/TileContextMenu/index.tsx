@@ -16,6 +16,9 @@ interface TileContextMenuProps {
   onCopyText: (text: string) => void;
   onSelectRaw: (item: HoverItem) => void;
   onSelectGround: (item: HoverItem) => void;
+  onSpawnProperties: (center: Position) => void;
+  onCreatureProperties: (pos: Position) => void;
+  onSelectCreature: (pos: Position) => void;
 }
 
 interface ItemProps {
@@ -64,9 +67,12 @@ const TileContextMenu = ({
   onGoToDest,
   onCopyText,
   onSelectRaw,
-  onSelectGround
+  onSelectGround,
+  onSpawnProperties,
+  onCreatureProperties,
+  onSelectCreature
 }: TileContextMenuProps) => {
-  const { item, ground, dest, tile, hasSelection, canPaste } = menu;
+  const { item, ground, dest, tile, spawn, creature, hasSelection, canPaste } = menu;
 
   const ref = React.useRef<HTMLDivElement>(null);
   const [pos, setPos] = React.useState({ left: menu.clientX, top: menu.clientY });
@@ -106,6 +112,7 @@ const TileContextMenu = ({
         />
       )}
       {ground && <Item label="Select Groundbrush" onClick={() => onSelectGround(ground)} />}
+      {creature && <Item label="Select Creature" onClick={() => onSelectCreature(creature)} />}
 
       <SubMenu label="Copy..." openLeft={flipX}>
         <Item label="Copy Position" disabled={!hasSelection} onClick={() => onCopyPosition(tile)} />
@@ -125,7 +132,13 @@ const TileContextMenu = ({
       <Item label="Delete" shortcut="Del" onClick={onDelete} disabled={!hasSelection} />
 
       <Separator />
-      <Item disabled label="Properties" />
+      {spawn ? (
+        <Item label="Spawn Properties..." onClick={() => onSpawnProperties(spawn)} />
+      ) : creature ? (
+        <Item label="Creature Properties..." onClick={() => onCreatureProperties(creature)} />
+      ) : (
+        <Item disabled label="Properties" />
+      )}
     </div>
   );
 };

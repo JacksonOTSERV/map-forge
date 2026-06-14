@@ -144,6 +144,7 @@ function buildCreatureTilesets(doc: Document): PaletteTileset[] {
       name,
       kind: 'creature',
       lookType: looktype,
+      isNpc: type === 'npc',
       creature: {
         type: looktype,
         head: numAttr(c, 'lookhead'),

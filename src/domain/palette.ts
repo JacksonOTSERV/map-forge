@@ -29,6 +29,7 @@ export interface PaletteBrush {
   kind: BrushKind;
   lookServerId?: number;
   lookType?: number;
+  isNpc?: boolean;
   creature?: CreatureLook;
 }
 
@@ -46,6 +47,8 @@ export interface ActiveBrush {
   preview?: string;
   cols?: number;
   rows?: number;
+  lookType?: number;
+  isNpc?: boolean;
 }
 
 export type PaletteData = Record<PaletteCategoryId, PaletteTileset[]>;

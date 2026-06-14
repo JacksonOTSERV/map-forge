@@ -14,7 +14,11 @@ export interface BoxSelection {
 export interface Selection {
   entries: React.MutableRefObject<Map<string, SelTile>>;
   box: React.MutableRefObject<BoxSelection | null>;
+  spawn: React.MutableRefObject<Position | null>;
+  creature: React.MutableRefObject<Position | null>;
   selectTile: (pos: Position, all: boolean) => void;
+  selectSpawn: (pos: Position | null) => void;
+  selectCreature: (pos: Position | null) => void;
   selectBox: (z: number, ax: number, ay: number, bx: number, by: number, additive: boolean) => void;
   clear: () => void;
 }
@@ -22,8 +26,29 @@ export interface Selection {
 export function useSelection(meshes: ChunkMeshCache): Selection {
   const entries = React.useRef(new Map<string, SelTile>());
   const box = React.useRef<BoxSelection | null>(null);
+  const spawn = React.useRef<Position | null>(null);
+  const creature = React.useRef<Position | null>(null);
+
+  function selectMarker(ref: React.MutableRefObject<Position | null>, pos: Position | null) {
+    const prev = ref.current;
+    if (prev && (!pos || prev.x !== pos.x || prev.y !== pos.y || prev.z !== pos.z)) {
+      meshes.discardAt(prev.x, prev.y, prev.z);
+    }
+    ref.current = pos;
+    if (pos) meshes.discardAt(pos.x, pos.y, pos.z);
+  }
+
+  function selectSpawn(pos: Position | null) {
+    selectMarker(spawn, pos);
+  }
+
+  function selectCreature(pos: Position | null) {
+    selectMarker(creature, pos);
+  }
 
   function clear() {
+    selectSpawn(null);
+    selectCreature(null);
     if (entries.current.size === 0) return;
     meshes.discardTiles(entries.current.values());
     entries.current.clear();
@@ -52,5 +77,5 @@ export function useSelection(meshes: ChunkMeshCache): Selection {
     meshes.discardTiles(added);
   }
 
-  return { entries, box, selectTile, selectBox, clear };
+  return { entries, box, spawn, creature, selectTile, selectSpawn, selectCreature, selectBox, clear };
 }

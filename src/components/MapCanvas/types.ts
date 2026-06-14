@@ -2,6 +2,7 @@ import React from 'react';
 
 import { ToolId } from '~/domain/tools';
 import { ThingType } from '~/domain/tibia';
+import { MapSpawns } from '~/domain/creature';
 import { MapView, MapMeta, Position } from '~/domain/map';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
 
@@ -47,14 +48,42 @@ export interface ContextMenuState {
   dest: Position | null;
   item: HoverItem | null;
   ground: HoverItem | null;
+  spawn: Position | null;
+  creature: Position | null;
   hasSelection: boolean;
   canPaste: boolean;
+}
+
+export interface SpawnForm {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  spawntime: number;
+}
+
+export interface CreatureForm {
+  x: number;
+  y: number;
+  z: number;
+  name: string;
+  spawntime: number;
+  direction: number;
 }
 
 export interface MapCanvasProps {
   map: MapMeta;
   items: Map<number, ThingType>;
+  outfits: Map<number, ThingType>;
   itemNames: Map<number, string>;
+  spawns: MapSpawns | null;
+  showSpawns: boolean;
+  showCreatures: boolean;
+  spawnMarkerClientId: number;
+  spawnTime: number;
+  spawnRadius: number;
+  autoCreateSpawn: boolean;
+  onEditSpawns: (next: MapSpawns) => void;
   sprPath: string;
   transparency: boolean;
   floorZ: number;
@@ -66,7 +95,7 @@ export interface MapCanvasProps {
   onHover: (info: HoverInfo | null) => void;
   onSelect: (item: HoverItem | null) => void;
   onSelectBrush: (brush: ActiveBrush | null) => void;
-  onRevealBrush?: (category: PaletteCategoryId, serverId: number) => void;
+  onRevealBrush?: (category: PaletteCategoryId, serverId: number, name?: string) => void;
   onToolChange: (tool: ToolId) => void;
   activeBrush: ActiveBrush | null;
   activeTool: ToolId;
