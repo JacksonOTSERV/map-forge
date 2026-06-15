@@ -187,7 +187,7 @@ const MapCanvas = (props: MapCanvasProps) => {
           : 'default';
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full overflow-hidden">
       <canvas
         ref={canvasRef}
         className="h-full w-full"
