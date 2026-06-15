@@ -452,7 +452,8 @@ pub fn paint_tiles(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
+	m.ensure_tiles(z, &edit_tiles, otb)?;
 	m.record_begin();
 	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, automagic);
 	m.record_commit(ACTION_PAINT);
@@ -485,7 +486,8 @@ pub fn paint_zone(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
+	m.ensure_tiles(z, &edit_tiles, otb)?;
 	m.record_begin();
 
 	let mut touched: HashSet<u32> = HashSet::new();
@@ -537,7 +539,8 @@ pub fn set_house(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
+	m.ensure_tiles(z, &edit_tiles, otb)?;
 	m.record_begin();
 
 	let mut touched: HashSet<u32> = HashSet::new();
@@ -670,7 +673,8 @@ pub fn preview_paint(
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let real = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	real.ensure_floor(z, otb)?;
+	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
+	real.ensure_tiles(z, &edit_tiles, otb)?;
 
 	let min_x = *xs.iter().min().unwrap();
 	let max_x = *xs.iter().max().unwrap();
@@ -742,7 +746,7 @@ pub fn move_item(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	m.ensure_tiles(z, &[(from_x, from_y), (to_x, to_y)], otb)?;
 	if stack_at(m, z, from_x, from_y).is_empty() {
 		return Ok(Vec::new());
 	}
@@ -781,7 +785,7 @@ pub fn delete_item(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	m.ensure_tiles(z, &[(x, y)], otb)?;
 	m.record_begin();
 
 	let stack = tile_stack_mut(m, z, x, y);
@@ -822,7 +826,7 @@ pub fn erase_brush(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	m.ensure_tiles(z, &[(x, y)], otb)?;
 	m.record_begin();
 
 	let stack = tile_stack_mut(m, z, x, y);
@@ -864,10 +868,9 @@ pub fn erase_area(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
-
 	let (min_x, max_x) = (x0.min(x1), x0.max(x1));
 	let (min_y, max_y) = (y0.min(y1), y0.max(y1));
+	m.ensure_span(z, min_x, min_y, max_x, max_y, otb)?;
 	let kept = |c: u16, s: u16| matches!(order_class(&place, mats, c, s), GROUND_CLASS | BORDER_CLASS);
 	let in_rect = |x: u16, y: u16| x >= min_x && x <= max_x && y >= min_y && y <= max_y;
 
@@ -950,7 +953,8 @@ pub fn delete_selection(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
+	m.ensure_tiles(z, &edit_tiles, otb)?;
 	m.record_begin();
 
 	let mut touched: HashSet<u32> = HashSet::new();
@@ -999,7 +1003,8 @@ pub fn copy_selection(
 	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
+	m.ensure_tiles(z, &edit_tiles, otb)?;
 
 	let min_x = xs.iter().copied().min().unwrap_or(0);
 	let min_y = ys.iter().copied().min().unwrap_or(0);
@@ -1045,7 +1050,20 @@ pub fn paste_selection(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	m.ensure_floor(z, otb)?;
+	let paste_tiles: Vec<(u16, u16)> = buffer
+		.tiles
+		.iter()
+		.filter_map(|t| {
+			let tx = x as u32 + t.dx as u32;
+			let ty = y as u32 + t.dy as u32;
+			if tx > u16::MAX as u32 || ty > u16::MAX as u32 {
+				None
+			} else {
+				Some((tx as u16, ty as u16))
+			}
+		})
+		.collect();
+	m.ensure_tiles(z, &paste_tiles, otb)?;
 	m.record_begin();
 
 	let mut touched: HashSet<u32> = HashSet::new();

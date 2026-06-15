@@ -505,6 +505,45 @@ impl MapModel {
 		self.load_chunks(&todo, otb)
 	}
 
+	fn collect_ring(cx: u32, cy: u32, keys: &mut HashSet<u32>) {
+		for dy in -1i64..=1 {
+			for dx in -1i64..=1 {
+				let nx = cx as i64 + dx;
+				let ny = cy as i64 + dy;
+				if nx < 0 || ny < 0 || nx > u16::MAX as i64 || ny > u16::MAX as i64 {
+					continue;
+				}
+				keys.insert(((nx as u32) << 16) | ny as u32);
+			}
+		}
+	}
+
+	pub(crate) fn ensure_tiles(&mut self, z: u8, tiles: &[(u16, u16)], otb: &OtbItems) -> Result<(), String> {
+		if self.eager || tiles.is_empty() {
+			return Ok(());
+		}
+		let mut keys: HashSet<u32> = HashSet::new();
+		for &(x, y) in tiles {
+			Self::collect_ring(x as u32 / CHUNK, y as u32 / CHUNK, &mut keys);
+		}
+		let keys: Vec<u32> = keys.into_iter().collect();
+		self.ensure_chunks(z, &keys, otb)
+	}
+
+	pub(crate) fn ensure_span(&mut self, z: u8, min_x: u16, min_y: u16, max_x: u16, max_y: u16, otb: &OtbItems) -> Result<(), String> {
+		if self.eager {
+			return Ok(());
+		}
+		let mut keys: HashSet<u32> = HashSet::new();
+		for cy in (min_y as u32 / CHUNK)..=(max_y as u32 / CHUNK) {
+			for cx in (min_x as u32 / CHUNK)..=(max_x as u32 / CHUNK) {
+				Self::collect_ring(cx, cy, &mut keys);
+			}
+		}
+		let keys: Vec<u32> = keys.into_iter().collect();
+		self.ensure_chunks(z, &keys, otb)
+	}
+
 	pub(crate) fn window_minimap(
 		&mut self,
 		z: u8,
