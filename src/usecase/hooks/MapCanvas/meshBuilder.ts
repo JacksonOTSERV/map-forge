@@ -124,7 +124,7 @@ export function appendCreatures(
           continue;
         }
         const { u0, v0 } = slotUV(slot);
-        inst.push((c.x - w) * TILE - ox, (c.y - h) * TILE - oy, u0, v0, tint, 1);
+        inst.push((c.x - w) * TILE - ox, (c.y - h) * TILE - oy, u0, v0, tint, 1, 0);
       }
     }
   }
@@ -202,7 +202,7 @@ export function buildSpawnAreaGhost(
               const slot = atlas.slotFor(sid, data);
               if (slot < 0) continue;
               const { u0, v0 } = slotUV(slot);
-              inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, 0, factor);
+              inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, 0, factor, 0);
             }
           }
         }
@@ -236,7 +236,7 @@ export function buildThingGhost(
         const slot = atlas.slotFor(sid, data);
         if (slot < 0) continue;
         const { u0, v0 } = slotUV(slot);
-        inst.push((x - w) * TILE, (y - h) * TILE, u0, v0, 0, 1);
+        inst.push((x - w) * TILE, (y - h) * TILE, u0, v0, 0, 1, 0);
       }
     }
   }
@@ -296,7 +296,7 @@ export function buildTopItemMesh(
             const slot = atlas.slotFor(sid, data);
             if (slot < 0) continue;
             const { u0, v0 } = slotUV(slot);
-            inst.push((tx - w) * TILE - ox + sx, (ty - h) * TILE - oy + sy, u0, v0, 0, 1);
+            inst.push((tx - w) * TILE - ox + sx, (ty - h) * TILE - oy + sy, u0, v0, 0, 1, 0);
           }
         }
       }

@@ -9,6 +9,7 @@ layout(location=1) in vec2 aPos;
 layout(location=2) in vec2 aUV;
 layout(location=3) in float aTint;
 layout(location=4) in float aSpawn;
+layout(location=5) in float aZone;
 uniform vec2 uCam;
 uniform float uScale;
 uniform float uSnap;
@@ -18,6 +19,7 @@ out vec2 vUV;
 out vec2 vSlot;
 out float vTint;
 out float vSpawn;
+out float vZone;
 const float T = ${TILE.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
@@ -30,6 +32,7 @@ void main() {
 	vSlot = aUV;
 	vTint = aTint;
 	vSpawn = aSpawn;
+	vZone = aZone;
 }`;
 
 const FRAG_SRC = `#version 300 es
@@ -38,6 +41,7 @@ in vec2 vUV;
 in vec2 vSlot;
 in float vTint;
 in float vSpawn;
+in float vZone;
 uniform sampler2D uAtlas;
 uniform float uScale;
 out vec4 frag;
@@ -70,6 +74,11 @@ void main() {
 	}
 	if (c.a < 0.01) discard;
 	vec3 col = c.rgb * vec3(1.0, vSpawn, vSpawn);
+	int zf = int(vZone + 0.5);
+	if ((zf & 1) != 0) { col.r *= 0.5; col.b *= 0.5; }
+	if ((zf & 16) != 0) { col.g = col.r * 0.25; col.b *= 0.66796875; }
+	if ((zf & 8) != 0) { col.b *= 0.5; }
+	if ((zf & 4) != 0) { col.g *= 0.5; }
 	frag = vec4(mix(col, vec3(0.0), vTint * 0.45), c.a);
 }`;
 
@@ -105,7 +114,7 @@ void main() {
 	frag = uColor;
 }`;
 
-const FLOATS_PER_INSTANCE = 6;
+const FLOATS_PER_INSTANCE = 7;
 const INSTANCE_STRIDE = FLOATS_PER_INSTANCE * 4;
 
 export function slotUV(slot: number): { u0: number; v0: number } {
@@ -186,6 +195,8 @@ export class GLRenderer {
     gl.vertexAttribDivisor(3, 1);
     gl.enableVertexAttribArray(4);
     gl.vertexAttribDivisor(4, 1);
+    gl.enableVertexAttribArray(5);
+    gl.vertexAttribDivisor(5, 1);
     gl.bindVertexArray(null);
 
     this.hlVao = gl.createVertexArray()!;
@@ -320,6 +331,7 @@ export class GLRenderer {
     gl.vertexAttribPointer(2, 2, gl.FLOAT, false, INSTANCE_STRIDE, 8);
     gl.vertexAttribPointer(3, 1, gl.FLOAT, false, INSTANCE_STRIDE, 16);
     gl.vertexAttribPointer(4, 1, gl.FLOAT, false, INSTANCE_STRIDE, 20);
+    gl.vertexAttribPointer(5, 1, gl.FLOAT, false, INSTANCE_STRIDE, 24);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, mesh.count);
   }
 

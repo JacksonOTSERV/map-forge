@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { Position } from '~/domain/map';
+import { isZoneTool } from '~/domain/tools';
+import { ZONE_TOOL_FLAG } from '~/domain/zones';
 import { buildItemPreview } from '~/usecase/itemPreview';
 import { formatPosition } from '~/usecase/positionFormat';
 import { MapSpawns, emptyMapSpawns } from '~/domain/creature';
@@ -32,6 +34,7 @@ import {
   undoEdit,
   redoEdit,
   eraseArea,
+  paintZone,
   deleteItem,
   paintTiles,
   previewPaint,
@@ -419,6 +422,34 @@ export function useMapInteraction(deps: InteractionDeps) {
       .catch((err) => console.error('Failed to paint box', err));
   }
 
+  const zonePainting = React.useRef(false);
+  const zoneMode = React.useRef<{ flag: number; set: boolean } | null>(null);
+
+  function paintZoneAt(pos: Position) {
+    const mode = zoneMode.current;
+    if (!mode) return;
+    const key = `${pos.x},${pos.y},${pos.z}`;
+    if (key === scene.lastPaintKey.current) return;
+    scene.lastPaintKey.current = key;
+    paintZone(inputs.current.map.id, pos.z, [pos.x], [pos.y], mode.flag, mode.set)
+      .then((touched) => {
+        if (touched.length === 0) tiles.queueRefetch(pos.x, pos.y, pos.z);
+        for (const k of touched) tiles.queueRefetch((k >>> 16) * CHUNK, (k & 0xffff) * CHUNK, pos.z);
+        notifyEdit(pos.z);
+      })
+      .catch((err) => console.error('Failed to paint zone', err));
+  }
+
+  function paintZoneBox(bs: BoxSelection, set: boolean) {
+    const tool = inputs.current.activeTool;
+    if (!isZoneTool(tool)) return;
+    const z = bs.startTile.z;
+    const { xs, ys } = boxTiles(bs);
+    paintZone(inputs.current.map.id, z, xs, ys, ZONE_TOOL_FLAG[tool], set)
+      .then((touched) => refetchKeysNow(touched, z))
+      .catch((err) => console.error('Failed to paint zone box', err));
+  }
+
   function eraseBox(bs: BoxSelection) {
     const z = bs.startTile.z;
     const x0 = Math.min(bs.startTile.x, bs.curTile.x);
@@ -755,7 +786,8 @@ export function useMapInteraction(deps: InteractionDeps) {
     const tool = inputs.current.activeTool;
     const brush = inputs.current.activeBrush;
     const canBrush = tool === 'brush' && brush != null && brush.serverId != null;
-    if (e.shiftKey && (tool === 'select' || tool === 'eraser' || canBrush)) {
+    const zoneTool = isZoneTool(tool);
+    if (e.shiftKey && (tool === 'select' || tool === 'eraser' || zoneTool || canBrush)) {
       const pos = tileAt(e);
       selection.box.current = { startTile: pos, curTile: pos, additive: e.ctrlKey };
       setBoxing(true);
@@ -767,6 +799,14 @@ export function useMapInteraction(deps: InteractionDeps) {
       scene.lastPaintKey.current = null;
       recordItemEdit();
       paintAt(tileAt(e));
+      return;
+    }
+    if (zoneTool) {
+      zonePainting.current = true;
+      zoneMode.current = { flag: ZONE_TOOL_FLAG[tool], set: !e.ctrlKey };
+      scene.lastPaintKey.current = null;
+      recordItemEdit();
+      paintZoneAt(tileAt(e));
       return;
     }
     if (tool === 'brush' && brush && brush.kind === 'creature') {
@@ -806,6 +846,8 @@ export function useMapInteraction(deps: InteractionDeps) {
       applyCreatureAt(tileAt(e));
     } else if (scene.painting.current) {
       paintAt(tileAt(e));
+    } else if (zonePainting.current) {
+      paintZoneAt(tileAt(e));
     } else if (scene.erasing.current) {
       eraseAt(tileAt(e));
     } else if (camera.panMove(e)) {
@@ -848,6 +890,9 @@ export function useMapInteraction(deps: InteractionDeps) {
       } else if (tool === 'eraser') {
         recordItemEdit();
         eraseBox(bs);
+      } else if (isZoneTool(tool)) {
+        recordItemEdit();
+        paintZoneBox(bs, !bs.additive);
       } else {
         selection.selectBox(bs.startTile.z, bs.startTile.x, bs.startTile.y, bs.curTile.x, bs.curTile.y, bs.additive);
         inputs.current.onSelect(hoverAt(bs.curTile).item);
@@ -858,6 +903,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     camera.endPan();
     scene.painting.current = false;
     scene.erasing.current = false;
+    zonePainting.current = false;
     scene.lastPaintKey.current = null;
   }
 
@@ -871,6 +917,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     finishCreatureStroke();
     scene.painting.current = false;
     scene.erasing.current = false;
+    zonePainting.current = false;
     scene.lastPaintKey.current = null;
     scene.lastHoverKey.current = null;
     scene.hoveredTile.current = null;

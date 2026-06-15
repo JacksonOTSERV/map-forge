@@ -3,6 +3,7 @@ import React from 'react';
 import { ToolId } from '~/domain/tools';
 import { ThingType } from '~/domain/tibia';
 import { MapSpawns } from '~/domain/creature';
+import { ZoneVisibility } from '~/domain/zones';
 import { MapWaypoints } from '~/domain/waypoint';
 import { MapView, MapMeta, Position } from '~/domain/map';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
@@ -115,6 +116,7 @@ export interface MapCanvasProps {
   onToolChange: (tool: ToolId) => void;
   activeBrush: ActiveBrush | null;
   activeTool: ToolId;
+  zoneVisibility: ZoneVisibility;
   automagic: boolean;
   copyPositionFormat: string;
   onEdit?: (z: number) => void;

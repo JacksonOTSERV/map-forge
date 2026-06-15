@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { isZoneTool } from '~/domain/tools';
 import { GLRenderer } from '~/usecase/glRenderer';
 import { DRAW_CURSOR, WAYPOINT_CURSOR } from '~/usecase/cursors';
 import { useMapScene } from '~/usecase/hooks/MapCanvas/useMapScene';
@@ -103,7 +104,7 @@ const MapCanvas = (props: MapCanvasProps) => {
 
   React.useEffect(() => {
     meshes.clear();
-  }, [props.spawns, props.showSpawns, props.showCreatures, props.waypoints, props.showWaypoints]);
+  }, [props.spawns, props.showSpawns, props.showCreatures, props.waypoints, props.showWaypoints, props.zoneVisibility]);
 
   React.useEffect(() => {
     const el = document.documentElement;
@@ -116,7 +117,7 @@ const MapCanvas = (props: MapCanvasProps) => {
     ? WAYPOINT_CURSOR
     : paintable
       ? DRAW_CURSOR
-      : activeTool === 'eraser' || activeTool === 'spawn' || interaction.boxing
+      : activeTool === 'eraser' || activeTool === 'spawn' || isZoneTool(activeTool) || interaction.boxing
         ? 'crosshair'
         : camera.panning || interaction.moving
           ? 'grabbing'

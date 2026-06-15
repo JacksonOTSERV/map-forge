@@ -35,6 +35,7 @@ pub trait OtbmVisitor {
 	fn header(&mut self, width: u16, height: u16);
 	fn progress(&mut self, pos: usize, total: usize);
 	fn tile(&mut self, x: u16, y: u16, z: u8, items: &[(u16, u8)]);
+	fn tile_flags(&mut self, _x: u16, _y: u16, _z: u8, _flags: u32) {}
 	fn teleport(&mut self, sx: u16, sy: u16, sz: u8, dx: u16, dy: u16, dz: u8);
 
 	fn identifier(&mut self, _start: usize, _end: usize) {}
@@ -270,14 +271,14 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 		let tile_x = base_x.wrapping_add(dx as u16);
 		let tile_y = base_y.wrapping_add(dy as u16);
 		self.scratch.clear();
+		let mut flags = 0u32;
 
 		while let Some(attr) = self.r.data_u8() {
 			match attr {
-				OTBM_ATTR_TILE_FLAGS => {
-					if self.r.data_u32().is_none() {
-						break;
-					}
-				}
+				OTBM_ATTR_TILE_FLAGS => match self.r.data_u32() {
+					Some(f) => flags = f,
+					None => break,
+				},
 				OTBM_ATTR_ITEM => match self.r.data_u16() {
 					Some(id) => self.scratch.push((id, 1)),
 					None => break,
@@ -299,6 +300,9 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 		let items = std::mem::take(&mut self.scratch);
 		self.v.tile(tile_x, tile_y, base_z, &items);
 		self.scratch = items;
+		if flags != 0 {
+			self.v.tile_flags(tile_x, tile_y, base_z, flags);
+		}
 		Ok((tile_x, tile_y, base_z))
 	}
 

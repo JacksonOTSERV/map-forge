@@ -145,6 +145,17 @@ export async function paintTiles(
   return invoke<number[]>('paint_tiles', { mapId, z, xs, ys, serverId, isGround, isDoodad, automagic });
 }
 
+export async function paintZone(
+  mapId: number,
+  z: number,
+  xs: number[],
+  ys: number[],
+  flag: number,
+  set: boolean
+): Promise<number[]> {
+  return invoke<number[]>('paint_zone', { mapId, z, xs, ys, flag, set });
+}
+
 export async function deleteItem(mapId: number, z: number, x: number, y: number, automagic: boolean): Promise<number[]> {
   return invoke<number[]>('delete_item', { mapId, z, x, y, automagic });
 }
@@ -252,6 +263,7 @@ export async function fetchMapChunks(mapId: number, z: number, keys: number[]): 
 
     const tileX = new Uint16Array(tileCount);
     const tileY = new Uint16Array(tileCount);
+    const flags = new Uint32Array(tileCount);
     const itemOffset = new Uint32Array(tileCount + 1);
     const clientList: number[] = [];
     const serverList: number[] = [];
@@ -262,6 +274,8 @@ export async function fetchMapChunks(mapId: number, z: number, keys: number[]): 
       o += 2;
       tileY[t] = view.getUint16(o, true);
       o += 2;
+      flags[t] = view.getUint32(o, true);
+      o += 4;
       const nItems = view.getUint16(o, true);
       o += 2;
       itemOffset[t] = acc;
@@ -279,6 +293,7 @@ export async function fetchMapChunks(mapId: number, z: number, keys: number[]): 
     result.set(`${cx},${cy}`, {
       tileX,
       tileY,
+      flags,
       itemOffset,
       clientIds: Uint16Array.from(clientList),
       serverIds: Uint16Array.from(serverList),

@@ -33,7 +33,8 @@ use commands::{
 	read_file_text, read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic, write_file_text,
 };
 use map_edit::{
-	copy_selection, delete_item, delete_selection, erase_area, move_item, paint_tiles, paste_selection, preview_paint, CopyBuffer,
+	copy_selection, delete_item, delete_selection, erase_area, move_item, paint_tiles, paint_zone, paste_selection, preview_paint,
+	CopyBuffer,
 };
 use map_load::open_otbm;
 use map_meta::{get_map_properties, get_towns, get_waypoints, map_statistics, set_map_properties, set_towns};
@@ -99,6 +100,7 @@ pub fn run() {
 			set_map_properties,
 			map_statistics,
 			paint_tiles,
+			paint_zone,
 			preview_paint,
 			move_item,
 			delete_item,

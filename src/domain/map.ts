@@ -25,6 +25,7 @@ export interface StoredMapView {
 export interface ChunkTiles {
   tileX: Uint16Array;
   tileY: Uint16Array;
+  flags: Uint32Array;
   itemOffset: Uint32Array;
   clientIds: Uint16Array;
   serverIds: Uint16Array;

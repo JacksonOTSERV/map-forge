@@ -37,6 +37,7 @@ import { getMapProperties, setMapProperties } from '~/adapter/map';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
 import { useMapSpawns } from '~/usecase/hooks/Workspace/useMapSpawns';
 import { addWaypoint, nextWaypointName } from '~/usecase/waypointEdits';
+import { ZoneVisibility, DEFAULT_ZONE_VISIBILITY } from '~/domain/zones';
 import { useMapWaypoints } from '~/usecase/hooks/Workspace/useMapWaypoints';
 import { useAppShortcuts } from '~/usecase/hooks/Workspace/useAppShortcuts';
 import { loadEditorConfig, loadGeneralConfig, defaultEditorConfig, defaultGeneralConfig } from '~/adapter/preferences';
@@ -66,6 +67,7 @@ const App = () => {
   const [spawnSize, setSpawnSize] = React.useState(SPAWN_RADIUS_DEFAULT);
   const [spawnTime, setSpawnTime] = React.useState(SPAWN_TIME_DEFAULT);
   const [showWaypoints, setShowWaypoints] = React.useState(true);
+  const [zoneVisibility, setZoneVisibility] = React.useState<ZoneVisibility>(DEFAULT_ZONE_VISIBILITY);
   const [placingWaypoint, setPlacingWaypoint] = React.useState<string | null>(null);
   const [townsOpen, setTownsOpen] = React.useState(false);
   const [mapPropsOpen, setMapPropsOpen] = React.useState(false);
@@ -223,6 +225,13 @@ const App = () => {
       return next;
     });
 
+  const toggleZone = (key: keyof ZoneVisibility) =>
+    setZoneVisibility((v) => {
+      const next = { ...v, [key]: !v[key] };
+      void setSetting('zoneVisibility', next);
+      return next;
+    });
+
   const editWaypoints = (next: MapWaypoints) => (waypointEditRef.current ?? handleEditWaypoints)(next);
 
   const gotoWaypoint = (wp: Waypoint) => gotoPosition(wp.x, wp.y, wp.z);
@@ -315,6 +324,12 @@ const App = () => {
 
   React.useEffect(() => {
     void getSetting('showWaypoints', true).then(setShowWaypoints);
+  }, []);
+
+  React.useEffect(() => {
+    void getSetting<ZoneVisibility>('zoneVisibility', DEFAULT_ZONE_VISIBILITY).then((v) =>
+      setZoneVisibility({ ...DEFAULT_ZONE_VISIBILITY, ...v })
+    );
   }, []);
 
   const reloadGeneral = React.useCallback(() => {
@@ -427,8 +442,10 @@ const App = () => {
         onOpen={handleOpen}
         hasActive={!!active}
         loading={busy || !assets}
+        onToggleZone={toggleZone}
         onClearRecent={clearRecent}
         onEditTowns={openEditTowns}
+        zoneVisibility={zoneVisibility}
         onSave={() => void handleSave()}
         onMapProperties={openMapProperties}
         onMapStatistics={openMapStatistics}
@@ -495,6 +512,7 @@ const App = () => {
             showCreatures={showCreatures}
             initialCenter={active.center}
             showWaypoints={showWaypoints}
+            zoneVisibility={zoneVisibility}
             onRevealBrush={revealInPalette}
             onEditSpawns={handleEditSpawns}
             autoCreateSpawn={autoCreateSpawn}

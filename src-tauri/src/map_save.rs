@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use crate::map_model::MapModel;
@@ -15,16 +15,51 @@ const OTBM_TILE: u8 = 5;
 const OTBM_ITEM: u8 = 6;
 const OTBM_TOWNS: u8 = 12;
 const OTBM_TOWN: u8 = 13;
+const OTBM_HOUSETILE: u8 = 14;
+const OTBM_ATTR_TILE_FLAGS: u8 = 3;
 const OTBM_ATTR_ITEM: u8 = 9;
 
 const OTBM_ATTR_DESCRIPTION: u8 = 1;
 const OTBM_ATTR_EXT_SPAWN_FILE: u8 = 11;
 const OTBM_ATTR_EXT_HOUSE_FILE: u8 = 13;
 
+const NODE_START: u8 = 0xFE;
+const NODE_END: u8 = 0xFF;
+const ESCAPE_CHAR: u8 = 0xFD;
+
+struct EscReader<'a> {
+	b: &'a [u8],
+	pos: usize,
+}
+
+impl EscReader<'_> {
+	fn peek(&self) -> Option<u8> {
+		self.b.get(self.pos).copied()
+	}
+	fn u8(&mut self) -> u8 {
+		let b = self.b[self.pos];
+		self.pos += 1;
+		if b == ESCAPE_CHAR {
+			let v = self.b[self.pos];
+			self.pos += 1;
+			v
+		} else {
+			b
+		}
+	}
+	fn u16(&mut self) -> u16 {
+		u16::from_le_bytes([self.u8(), self.u8()])
+	}
+	fn u32(&mut self) -> u32 {
+		u32::from_le_bytes([self.u8(), self.u8(), self.u8(), self.u8()])
+	}
+}
+
 struct SaveScan {
 	ident: (usize, usize),
 	others: Vec<(usize, usize)>,
 	tiles: Vec<(u8, u16, u16, usize, usize)>,
+	flags: HashMap<(u8, u32), u32>,
 	teleports: Vec<u8>,
 	teleport_count: u32,
 	house_tile_count: u32,
@@ -40,6 +75,7 @@ impl Default for SaveScan {
 			ident: (0, 0),
 			others: Vec::new(),
 			tiles: Vec::new(),
+			flags: HashMap::new(),
 			teleports: Vec::new(),
 			teleport_count: 0,
 			house_tile_count: 0,
@@ -55,6 +91,9 @@ impl OtbmVisitor for SaveScan {
 	fn header(&mut self, _w: u16, _h: u16) {}
 	fn progress(&mut self, _pos: usize, _total: usize) {}
 	fn tile(&mut self, _x: u16, _y: u16, _z: u8, _items: &[(u16, u8)]) {}
+	fn tile_flags(&mut self, x: u16, y: u16, z: u8, flags: u32) {
+		self.flags.insert((z, pos_key(x, y)), flags);
+	}
 	fn teleport(&mut self, sx: u16, sy: u16, sz: u8, dx: u16, dy: u16, dz: u8) {
 		self.teleports.extend_from_slice(&sx.to_le_bytes());
 		self.teleports.extend_from_slice(&sy.to_le_bytes());
@@ -84,13 +123,15 @@ impl OtbmVisitor for SaveScan {
 
 enum EmitTile<'a> {
 	Verbatim { x: u16, y: u16, start: usize, end: usize },
-	Fresh { x: u16, y: u16, stack: &'a [(u16, u16)] },
+	VerbatimFlags { x: u16, y: u16, start: usize, end: usize, flags: u32 },
+	Fresh { x: u16, y: u16, stack: &'a [(u16, u16)], flags: u32 },
 }
 
 impl EmitTile<'_> {
 	fn xy(&self) -> (u16, u16) {
 		match *self {
 			EmitTile::Verbatim { x, y, .. } => (x, y),
+			EmitTile::VerbatimFlags { x, y, .. } => (x, y),
 			EmitTile::Fresh { x, y, .. } => (x, y),
 		}
 	}
@@ -113,10 +154,27 @@ fn flatten_edits(model: &MapModel) -> HashMap<u8, HashMap<u32, &Vec<(u16, u16)>>
 	out
 }
 
-fn serialize_tile_fresh(w: &mut NodeWriter, x: u16, y: u16, stack: &[(u16, u16)]) {
+fn flatten_flag_edits(model: &MapModel) -> HashMap<u8, HashMap<u32, u32>> {
+	let mut out: HashMap<u8, HashMap<u32, u32>> = HashMap::new();
+	for (&z, chunks) in &model.flag_edits {
+		let floor = out.entry(z).or_default();
+		for posmap in chunks.values() {
+			for (&pos, &flags) in posmap {
+				floor.insert(pos, flags);
+			}
+		}
+	}
+	out
+}
+
+fn serialize_tile_fresh(w: &mut NodeWriter, x: u16, y: u16, stack: &[(u16, u16)], flags: u32) {
 	w.node_start(OTBM_TILE);
 	w.u8((x & 0xFF) as u8);
 	w.u8((y & 0xFF) as u8);
+	if flags != 0 {
+		w.u8(OTBM_ATTR_TILE_FLAGS);
+		w.u32(flags);
+	}
 	let mut iter = stack.iter();
 	if let Some(&(_, ground)) = iter.next() {
 		w.u8(OTBM_ATTR_ITEM);
@@ -128,6 +186,40 @@ fn serialize_tile_fresh(w: &mut NodeWriter, x: u16, y: u16, stack: &[(u16, u16)]
 		w.node_end();
 	}
 	w.node_end();
+}
+
+fn emit_tile_with_flags(w: &mut NodeWriter, span: &[u8], new_flags: u32) {
+	let kind = span[1];
+	w.node_start(kind);
+	let mut r = EscReader { b: span, pos: 2 };
+	let dx = r.u8();
+	let dy = r.u8();
+	w.u8(dx);
+	w.u8(dy);
+	if kind == OTBM_HOUSETILE {
+		let hid = r.u32();
+		w.u32(hid);
+	}
+	if new_flags != 0 {
+		w.u8(OTBM_ATTR_TILE_FLAGS);
+		w.u32(new_flags);
+	}
+	while let Some(b) = r.peek() {
+		if b == NODE_START || b == NODE_END {
+			break;
+		}
+		let attr = r.u8();
+		if attr == OTBM_ATTR_TILE_FLAGS {
+			let _ = r.u32();
+		} else if attr == OTBM_ATTR_ITEM {
+			let id = r.u16();
+			w.u8(OTBM_ATTR_ITEM);
+			w.u16(id);
+		} else {
+			break;
+		}
+	}
+	w.raw_escaped(&span[r.pos..]);
 }
 
 fn emit_floor(w: &mut NodeWriter, bytes: Option<&[u8]>, z: u8, mut list: Vec<EmitTile>) -> Vec<ChunkEntry> {
@@ -160,7 +252,10 @@ fn emit_floor(w: &mut NodeWriter, bytes: Option<&[u8]>, z: u8, mut list: Vec<Emi
 			EmitTile::Verbatim { start: s, end: e, .. } => {
 				w.raw_escaped(&bytes.expect("verbatim tile requires source bytes")[s..e]);
 			}
-			EmitTile::Fresh { x, y, stack } => serialize_tile_fresh(w, x, y, stack),
+			EmitTile::VerbatimFlags { start: s, end: e, flags, .. } => {
+				emit_tile_with_flags(w, &bytes.expect("verbatim tile requires source bytes")[s..e], flags);
+			}
+			EmitTile::Fresh { x, y, stack, flags } => serialize_tile_fresh(w, x, y, stack, flags),
 		}
 		count += 1;
 	}
@@ -245,6 +340,7 @@ fn build_faithful(model: &MapModel, bytes: &[u8], report: &mut dyn FnMut(f64, &s
 		base.entry(z).or_default().push((x, y, s, e));
 	}
 	let edits = flatten_edits(model);
+	let flag_edits = flatten_flag_edits(model);
 
 	let mut w = NodeWriter::with_capacity(bytes.len() + 4096);
 	w.identifier(&bytes[scan.ident.0..scan.ident.1]);
@@ -258,17 +354,32 @@ fn build_faithful(model: &MapModel, bytes: &[u8], report: &mut dyn FnMut(f64, &s
 		report(0.1 + 0.7 * (z as f64 / 16.0), "Re-encoding tiles");
 		let empty_edits = HashMap::new();
 		let zedits = edits.get(&z).unwrap_or(&empty_edits);
+		let empty_flags = HashMap::new();
+		let zflags = flag_edits.get(&z).unwrap_or(&empty_flags);
+		let mut base_pos: HashSet<u32> = HashSet::new();
 		let mut list: Vec<EmitTile> = Vec::new();
 		if let Some(tiles) = base.get(&z) {
 			for &(x, y, s, e) in tiles {
-				if !zedits.contains_key(&pos_key(x, y)) {
-					list.push(EmitTile::Verbatim { x, y, start: s, end: e });
+				let pos = pos_key(x, y);
+				base_pos.insert(pos);
+				if zedits.contains_key(&pos) {
+					continue;
+				}
+				match zflags.get(&pos) {
+					Some(&flags) => list.push(EmitTile::VerbatimFlags { x, y, start: s, end: e, flags }),
+					None => list.push(EmitTile::Verbatim { x, y, start: s, end: e }),
 				}
 			}
 		}
 		for (&pos, &stack) in zedits {
-			if !stack.is_empty() {
-				list.push(EmitTile::Fresh { x: (pos >> 16) as u16, y: (pos & 0xFFFF) as u16, stack });
+			let flags = zflags.get(&pos).copied().unwrap_or_else(|| scan.flags.get(&(z, pos)).copied().unwrap_or(0));
+			if !stack.is_empty() || flags != 0 {
+				list.push(EmitTile::Fresh { x: (pos >> 16) as u16, y: (pos & 0xFFFF) as u16, stack, flags });
+			}
+		}
+		for (&pos, &flags) in zflags {
+			if flags != 0 && !base_pos.contains(&pos) && !zedits.contains_key(&pos) {
+				list.push(EmitTile::Fresh { x: (pos >> 16) as u16, y: (pos & 0xFFFF) as u16, stack: &[], flags });
 			}
 		}
 		if list.is_empty() {
@@ -292,6 +403,7 @@ fn build_faithful(model: &MapModel, bytes: &[u8], report: &mut dyn FnMut(f64, &s
 
 fn build_from_model(model: &MapModel, report: &mut dyn FnMut(f64, &str)) -> Result<Vec<u8>, String> {
 	let edits = flatten_edits(model);
+	let flag_edits = flatten_flag_edits(model);
 
 	let mut w = NodeWriter::with_capacity(64 * 1024);
 	w.identifier(&[0, 0, 0, 0]);
@@ -305,30 +417,45 @@ fn build_from_model(model: &MapModel, report: &mut dyn FnMut(f64, &str)) -> Resu
 		report(0.1 + 0.7 * (z as f64 / 16.0), "Encoding tiles");
 		let empty_edits = HashMap::new();
 		let zedits = edits.get(&z).unwrap_or(&empty_edits);
-		let mut stacks: Vec<(u16, u16, Vec<(u16, u16)>)> = Vec::new();
+		let empty_flags = HashMap::new();
+		let zflags = flag_edits.get(&z).unwrap_or(&empty_flags);
+		let mut base_pos: HashSet<u32> = HashSet::new();
+		let mut stacks: Vec<(u16, u16, Vec<(u16, u16)>, u32)> = Vec::new();
 		if let Some(floor) = model.floors.get(&z) {
 			for &(start, end) in floor.values() {
 				for t in start as usize..end as usize {
 					let (x, y) = (model.tile_x[t], model.tile_y[t]);
-					if zedits.contains_key(&pos_key(x, y)) {
+					let pos = pos_key(x, y);
+					base_pos.insert(pos);
+					if zedits.contains_key(&pos) {
 						continue;
 					}
 					let s = model.item_off[t] as usize;
 					let e = model.item_off[t + 1] as usize;
 					let stack: Vec<(u16, u16)> = (s..e).map(|j| (model.client_ids[j], model.server_ids[j])).collect();
-					stacks.push((x, y, stack));
+					let flags = zflags.get(&pos).copied().unwrap_or(model.tile_flags[t]);
+					stacks.push((x, y, stack, flags));
 				}
 			}
 		}
 		for (&pos, &stack) in zedits {
-			if !stack.is_empty() {
-				stacks.push(((pos >> 16) as u16, (pos & 0xFFFF) as u16, stack.clone()));
+			let flags = zflags.get(&pos).copied().unwrap_or(0);
+			if !stack.is_empty() || flags != 0 {
+				stacks.push(((pos >> 16) as u16, (pos & 0xFFFF) as u16, stack.clone(), flags));
+			}
+		}
+		for (&pos, &flags) in zflags {
+			if flags != 0 && !base_pos.contains(&pos) && !zedits.contains_key(&pos) {
+				stacks.push(((pos >> 16) as u16, (pos & 0xFFFF) as u16, Vec::new(), flags));
 			}
 		}
 		if stacks.is_empty() {
 			continue;
 		}
-		let list: Vec<EmitTile> = stacks.iter().map(|(x, y, st)| EmitTile::Fresh { x: *x, y: *y, stack: st }).collect();
+		let list: Vec<EmitTile> = stacks
+			.iter()
+			.map(|(x, y, st, fl)| EmitTile::Fresh { x: *x, y: *y, stack: st, flags: *fl })
+			.collect();
 		chunks.extend(emit_floor(&mut w, None, z, list));
 	}
 
@@ -413,6 +540,76 @@ mod tests {
 		let mut c = Cmp::default();
 		read_otbm(bytes, &mut c).unwrap();
 		c.tiles
+	}
+
+	#[derive(Default)]
+	struct FlagCmp {
+		flags: Map<(u16, u16, u8), u32>,
+		items: Map<(u16, u16, u8), Vec<u16>>,
+	}
+
+	impl OtbmVisitor for FlagCmp {
+		fn header(&mut self, _w: u16, _h: u16) {}
+		fn progress(&mut self, _p: usize, _t: usize) {}
+		fn teleport(&mut self, _sx: u16, _sy: u16, _sz: u8, _dx: u16, _dy: u16, _dz: u8) {}
+		fn tile(&mut self, x: u16, y: u16, z: u8, items: &[(u16, u8)]) {
+			self.items.insert((x, y, z), items.iter().map(|&(id, _)| id).collect());
+		}
+		fn tile_flags(&mut self, x: u16, y: u16, z: u8, flags: u32) {
+			self.flags.insert((x, y, z), flags);
+		}
+	}
+
+	fn set_flag(model: &mut MapModel, z: u8, x: u16, y: u16, flags: u32) {
+		let pos = (x as u32) << 16 | y as u32;
+		let ck = crate::map_model::chunk_key_of(x, y);
+		model.flag_edits.entry(z).or_default().entry(ck).or_default().insert(pos, flags);
+	}
+
+	#[test]
+	fn from_model_writes_tile_flags() {
+		let mut model = build_map_model(
+			50,
+			50,
+			&[10],
+			&[10],
+			&[7],
+			&[0],
+			&[1],
+			&[1],
+			&[100],
+			&[1],
+			&[],
+			Vec::new(),
+			0,
+		);
+		set_flag(&mut model, 7, 10, 10, 0x01);
+
+		let out = build_from_model(&model, &mut |_, _| {}).unwrap();
+		let mut cmp = FlagCmp::default();
+		read_otbm(&out, &mut cmp).unwrap();
+		assert_eq!(cmp.flags.get(&(10, 10, 7)), Some(&0x01), "tile flags written");
+		assert_eq!(cmp.items.get(&(10, 10, 7)), Some(&vec![100]), "ground preserved alongside flags");
+	}
+
+	#[test]
+	fn faithful_save_splices_flags_and_keeps_items() {
+		let bytes = std::fs::read("../data/860/forgotten.otbm").unwrap();
+		let before = parse_tiles(&bytes);
+		let mut keys: Vec<(u16, u16, u8)> = before.keys().copied().collect();
+		keys.sort_unstable();
+		let (x, y, z) = keys[0];
+
+		let mut model = empty_model(0, 0);
+		set_flag(&mut model, z, x, y, 0x01);
+
+		let out = build_faithful(&model, &bytes, &mut |_, _| {}).unwrap();
+		let after = parse_tiles(&out);
+		assert_eq!(before, after, "every tile's item stack is preserved when a zone flag is spliced in");
+
+		let mut cmp = FlagCmp::default();
+		read_otbm(&out, &mut cmp).unwrap();
+		assert_eq!(cmp.flags.get(&(x, y, z)), Some(&0x01), "flag spliced onto the verbatim tile");
 	}
 
 	fn read_footer(bytes: &[u8]) -> Vec<(u8, u64, u64, u32)> {
@@ -580,7 +777,7 @@ mod tests {
 		let client_ids = vec![1u16, 2, 3, 4, 5];
 		let server_ids = vec![100u16, 200, 300, 400, 500];
 		let subtypes = vec![1u8; client_ids.len()];
-		let model = build_map_model(50, 50, &xs, &ys, &zs, &item_start, &item_count, &client_ids, &server_ids, &subtypes, Vec::new(), 0);
+		let model = build_map_model(50, 50, &xs, &ys, &zs, &item_start, &item_count, &client_ids, &server_ids, &subtypes, &[], Vec::new(), 0);
 
 		let out = build_from_model(&model, &mut |_, _| {}).unwrap();
 		let tiles = parse_tiles(&out);
@@ -605,7 +802,7 @@ mod tests {
 		let server_ids = vec![200u16, 300, 400];
 		let subtypes = vec![1u8; client_ids.len()];
 		let mut model =
-			build_map_model(50, 50, &xs, &ys, &zs, &item_start, &item_count, &client_ids, &server_ids, &subtypes, Vec::new(), 0);
+			build_map_model(50, 50, &xs, &ys, &zs, &item_start, &item_count, &client_ids, &server_ids, &subtypes, &[], Vec::new(), 0);
 
 		let mut palette = vec![0u8; 16];
 		palette[2] = 50;

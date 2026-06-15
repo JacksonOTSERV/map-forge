@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { isZoneTool } from '~/domain/tools';
+import { visibleZoneBits } from '~/domain/zones';
 import { visibleFloorRange } from '~/usecase/floors';
 import { slotUV, GLRenderer } from '~/usecase/glRenderer';
 import { packChunkKey, fetchMapChunks } from '~/adapter/map';
@@ -116,7 +118,7 @@ export function useMapRenderer(deps: RendererDeps) {
   }
 
   function buildChunkMesh(cx: number, cy: number, z: number, missing: Set<number>) {
-    const { items, outfits, spawns, showSpawns, showCreatures } = inputs.current;
+    const { items, outfits, spawns, showSpawns, showCreatures, zoneVisibility } = inputs.current;
     const key = `${z},${cx},${cy}`;
     const ct = tiles.data.current.get(key) as ChunkTiles | null | undefined;
     const sel = selection.entries.current;
@@ -166,6 +168,7 @@ export function useMapRenderer(deps: RendererDeps) {
         const selEntry = useSel ? sel.get(`${z},${tx},${ty}`) : undefined;
         const spawnCount = spawnCounts?.get(spawnTileKey(tx, ty));
         const groundSpawn = spawnCount ? spawnFactor(spawnCount) : 1;
+        const zoneBits = ct.flags[i] ? visibleZoneBits(ct.flags[i], zoneVisibility) : 0;
         let drawElevation = 0;
         for (let ii = ct.itemOffset[i]; ii < end; ii++) {
           const thing = items.get(ct.clientIds[ii]);
@@ -198,7 +201,7 @@ export function useMapRenderer(deps: RendererDeps) {
                   continue;
                 }
                 const { u0, v0 } = slotUV(slot);
-                inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, tint, spawn);
+                inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, tint, spawn, zoneBits);
               }
             }
           }
@@ -238,7 +241,7 @@ export function useMapRenderer(deps: RendererDeps) {
                   continue;
                 }
                 const { u0, v0 } = slotUV(slot);
-                inst.push((tx - w) * TILE, (ty - h) * TILE, u0, v0, markerTint, 1);
+                inst.push((tx - w) * TILE, (ty - h) * TILE, u0, v0, markerTint, 1, 0);
               }
             }
           }
@@ -280,7 +283,7 @@ export function useMapRenderer(deps: RendererDeps) {
                 continue;
               }
               const { u0, v0 } = slotUV(slot);
-              inst.push((wp.x - w) * TILE, (wp.y - h) * TILE, u0, v0, tint, 1);
+              inst.push((wp.x - w) * TILE, (wp.y - h) * TILE, u0, v0, tint, 1, 0);
             }
           }
         }
@@ -288,7 +291,7 @@ export function useMapRenderer(deps: RendererDeps) {
     }
 
     meshes.store(key, new Float32Array(inst), {
-      count: inst.length / 6,
+      count: inst.length / 7,
       version: atlas.version.current,
       epoch: atlas.epoch.current,
       complete,
@@ -326,7 +329,7 @@ export function useMapRenderer(deps: RendererDeps) {
               const slot = atlas.slotFor(sid, data);
               if (slot < 0) continue;
               const { u0, v0 } = slotUV(slot);
-              inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, 0, 1);
+              inst.push((tx - w) * TILE - ox, (ty - h) * TILE - oy, u0, v0, 0, 1, 0);
             }
           }
         }
@@ -347,22 +350,23 @@ export function useMapRenderer(deps: RendererDeps) {
     const tile = scene.hoveredTile.current;
     const showBrush = tool === 'brush' && brush != null && brush.serverId != null;
     const showEraser = tool === 'eraser';
+    const showZone = isZoneTool(tool);
 
-    if (selection.box.current || !tile || (!showBrush && !showEraser)) {
+    if (selection.box.current || !tile || (!showBrush && !showEraser && !showZone)) {
       ghost.style.display = 'none';
       outline.style.display = 'none';
       return;
     }
 
-    if (showEraser) {
+    if (showEraser || showZone) {
       const s = TILE * zoom;
       ghost.style.display = 'none';
       outline.style.display = 'block';
       outline.style.width = `${s}px`;
       outline.style.height = `${s}px`;
       outline.style.transform = `translate(${(tile.x * TILE - camX) * zoom}px, ${(tile.y * TILE - camY) * zoom}px)`;
-      outline.style.borderColor = 'rgb(248, 113, 113)';
-      outline.style.backgroundColor = 'rgba(239, 68, 68, 0.18)';
+      outline.style.borderColor = showEraser ? 'rgb(248, 113, 113)' : 'rgb(125, 211, 252)';
+      outline.style.backgroundColor = showEraser ? 'rgba(239, 68, 68, 0.18)' : 'rgba(56, 189, 248, 0.14)';
       return;
     }
 

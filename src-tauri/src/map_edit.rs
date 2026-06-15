@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use tauri::ipc::Response;
 
 use crate::map_model::{
-	chunk_key_of, empty_model, push_u16, push_u32, stack_at, tile_stack_mut, MapModel, ACTION_DELETE, ACTION_ERASE, ACTION_MOVE,
-	ACTION_PAINT, CHUNK,
+	chunk_key_of, empty_model, flags_at, push_u16, push_u32, stack_at, tile_stack_mut, MapModel, ACTION_DELETE, ACTION_ERASE,
+	ACTION_FLAG, ACTION_MOVE, ACTION_PAINT, CHUNK,
 };
 use crate::materials::{self, Materials};
 use crate::otb::OtbItems;
@@ -414,6 +414,56 @@ pub fn paint_tiles(
 	m.record_begin();
 	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, automagic);
 	m.record_commit(ACTION_PAINT);
+	Ok(touched.into_iter().collect())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn paint_zone(
+	map_id: u32,
+	z: u8,
+	xs: Vec<u16>,
+	ys: Vec<u16>,
+	flag: u32,
+	set: bool,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+) -> Result<Vec<u32>, String> {
+	if xs.len() != ys.len() {
+		return Err("xs and ys length mismatch".into());
+	}
+
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let mats = materials_guard.as_ref();
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
+	m.record_begin();
+
+	let mut touched: HashSet<u32> = HashSet::new();
+	for i in 0..xs.len() {
+		let (x, y) = (xs[i], ys[i]);
+		if set {
+			let stack = stack_at(m, z, x, y);
+			let has_ground = stack.first().is_some_and(|&(c, s)| is_ground_item(&place, mats, c, s));
+			if !has_ground {
+				continue;
+			}
+		}
+		let cur = flags_at(m, z, x, y);
+		let next = if set { cur | flag } else { cur & !flag };
+		if next != cur {
+			m.set_tile_flags(z, x, y, next);
+			touched.insert(chunk_key_of(x, y));
+		}
+	}
+	m.record_commit(ACTION_FLAG);
 	Ok(touched.into_iter().collect())
 }
 
@@ -842,7 +892,7 @@ mod tests {
 		let mut place = HashMap::new();
 		place.insert(grass_client, PlaceFlags { ground: true, top_order: 0 });
 
-		let mut m = build_map_model(100, 100, &[50], &[50], &[7], &[0], &[1], &[grass_client], &[4526], &[1], Vec::new(), 0);
+		let mut m = build_map_model(100, 100, &[50], &[50], &[7], &[0], &[1], &[grass_client], &[4526], &[1], &[], Vec::new(), 0);
 
 		let tiles: HashSet<(u16, u16)> = [(50u16, 50u16)].into_iter().collect();
 		borderize(&mut m, &mats, &place, &otb, 7, &tiles, false);
@@ -861,7 +911,7 @@ mod tests {
 		let mut place = HashMap::new();
 		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
 
-		let mut m = build_map_model(100, 100, &[50, 51], &[50, 50], &[7, 7], &[0, 1], &[1, 1], &[grass, grass], &[4526, 4526], &[1, 1], Vec::new(), 0);
+		let mut m = build_map_model(100, 100, &[50, 51], &[50, 50], &[7, 7], &[0, 1], &[1, 1], &[grass, grass], &[4526, 4526], &[1, 1], &[], Vec::new(), 0);
 
 		let both: HashSet<(u16, u16)> = [(50, 50), (51, 50)].into_iter().collect();
 		borderize(&mut m, &mats, &place, &otb, 7, &both, false);
@@ -883,7 +933,7 @@ mod tests {
 		let mut place = HashMap::new();
 		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
 
-		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
+		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
 
 		m.record_begin();
 		insert_ordered(tile_stack_mut(&mut m, 7, 50, 50), &place, Some(&mats), grass, 4526);
@@ -916,7 +966,7 @@ mod tests {
 		assert_eq!(order_class(&place, Some(&mats), border_client, border_server), BORDER_CLASS, "border item");
 		assert_eq!(order_class(&place, Some(&mats), item.0, item.1), NORMAL_CLASS, "synthetic item is normal");
 
-		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
+		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
 		let stack = tile_stack_mut(&mut m, 7, 10, 10);
 		*stack = vec![(grass, 4526), (border_client, border_server), item];
 		stack.retain(|&(c, s)| matches!(order_class(&place, Some(&mats), c, s), GROUND_CLASS | BORDER_CLASS));
