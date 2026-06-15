@@ -1,4 +1,5 @@
-import { Cat, Brush, MapPin, Eraser, Target, Crosshair, SquarePlus, MousePointer2, GripHorizontal } from 'lucide-react';
+import { IconFlag3, IconSpider, IconViewfinder, IconScanLetterA } from '@tabler/icons-react';
+import { Brush, Eraser, Crosshair, SquarePlus, MousePointer2, GripHorizontal } from 'lucide-react';
 
 import { cn } from '~/usecase/classNames';
 import { TOOLS, ToolId } from '~/domain/tools';
@@ -81,7 +82,7 @@ const ToolsPanel = ({
             showCreatures ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
           )}
         >
-          <Cat className="h-[18px] w-[18px]" />
+          <IconSpider className="h-[18px] w-[18px]" />
         </button>
         <button
           onClick={onToggleSpawns}
@@ -91,7 +92,7 @@ const ToolsPanel = ({
             showSpawns ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
           )}
         >
-          <Target className="h-[18px] w-[18px]" />
+          <IconViewfinder className="h-[18px] w-[18px]" />
         </button>
         <button
           onClick={onToggleAutoSpawn}
@@ -111,17 +112,17 @@ const ToolsPanel = ({
             showWaypoints ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
           )}
         >
-          <MapPin className="h-[18px] w-[18px]" />
+          <IconFlag3 className="h-[18px] w-[18px]" />
         </button>
         <button
           onClick={onToggleAutomagic}
           title="Automatic borders - auto-border, walls, tables, carpets, mountains"
           className={cn(
-            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded text-sm font-semibold transition-colors',
+            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
             automagic ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
           )}
         >
-          A
+          <IconScanLetterA className="h-[18px] w-[18px]" />
         </button>
       </div>
     </div>
