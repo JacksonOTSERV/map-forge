@@ -8,7 +8,10 @@ import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
 export interface StatusBarApi {
   setHover: (hover: HoverInfo | null) => void;
   setSelectedItem: (item: HoverItem | null) => void;
+  flash: (message: string) => void;
 }
+
+const FLASH_DURATION = 2500;
 
 interface StatusBarProps {
   status: string;
@@ -48,13 +51,29 @@ const SelectedDescription = ({ item }: { item: HoverItem }) => {
 const StatusBar = ({ status, apiRef, floorZ, zoom, onFloorChange, onZoomChange }: StatusBarProps) => {
   const [hover, setHover] = React.useState<HoverInfo | null>(null);
   const [selectedItem, setSelectedItem] = React.useState<HoverItem | null>(null);
+  const [flash, setFlash] = React.useState<string | null>(null);
+  const flashTimer = React.useRef(0);
 
-  React.useImperativeHandle(apiRef, () => ({ setHover, setSelectedItem }), []);
+  const showFlash = React.useCallback((message: string) => {
+    setFlash(message);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(null), FLASH_DURATION);
+  }, []);
+
+  React.useImperativeHandle(apiRef, () => ({ setHover, setSelectedItem, flash: showFlash }), [showFlash]);
+
+  React.useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   return (
     <div className="flex h-8 flex-shrink-0 items-stretch border-t border-border/50 bg-toolbar-bg text-xs text-muted-foreground">
       <div className="flex min-w-0 flex-1 items-center px-3">
-        {selectedItem ? <SelectedDescription item={selectedItem} /> : <span className="truncate">{status}</span>}
+        {flash ? (
+          <span className="truncate text-foreground">{flash}</span>
+        ) : selectedItem ? (
+          <SelectedDescription item={selectedItem} />
+        ) : (
+          <span className="truncate">{status}</span>
+        )}
       </div>
 
       <div className="w-px self-stretch bg-border" />
