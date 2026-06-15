@@ -80,6 +80,21 @@ fn order_class(place: &HashMap<u16, PlaceFlags>, mats: Option<&Materials>, clien
 	}
 }
 
+fn same_brush(mats: Option<&Materials>, brush_server: u16, item_server: u16) -> bool {
+	if brush_server == item_server {
+		return true;
+	}
+	let Some(m) = mats else {
+		return false;
+	};
+	let pair = |map: &HashMap<u16, u32>| matches!((map.get(&brush_server), map.get(&item_server)), (Some(a), Some(b)) if a == b);
+	pair(&m.server_to_ground)
+		|| pair(&m.server_to_wall)
+		|| pair(&m.server_to_table)
+		|| pair(&m.server_to_carpet)
+		|| pair(&m.server_to_doodad)
+}
+
 fn insert_ordered(stack: &mut Vec<(u16, u16)>, place: &HashMap<u16, PlaceFlags>, mats: Option<&Materials>, client: u16, server: u16) {
 	let class = order_class(place, mats, client, server);
 	if class == GROUND_CLASS {
@@ -772,6 +787,47 @@ pub fn delete_item(
 	let stack = tile_stack_mut(m, z, x, y);
 	let before = stack.len();
 	stack.retain(|&(c, s)| matches!(order_class(&place, mats, c, s), GROUND_CLASS | BORDER_CLASS));
+	let removed_any = stack.len() != before;
+
+	let mut touched: HashSet<u32> = [chunk_key_of(x, y)].into_iter().collect();
+	if automagic && removed_any {
+		if let Some(mats) = mats {
+			let tiles: HashSet<(u16, u16)> = [(x, y)].into_iter().collect();
+			touched.extend(auto_all(m, mats, &place, otb, z, &tiles));
+		}
+	}
+	m.record_commit(ACTION_ERASE);
+	Ok(touched.into_iter().collect())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn erase_brush(
+	map_id: u32,
+	z: u8,
+	x: u16,
+	y: u16,
+	server_id: u16,
+	automagic: bool,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+) -> Result<Vec<u32>, String> {
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let mats = materials_guard.as_ref();
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+	m.ensure_floor(z, otb)?;
+	m.record_begin();
+
+	let stack = tile_stack_mut(m, z, x, y);
+	let before = stack.len();
+	stack.retain(|&(_, s)| !same_brush(mats, server_id, s));
 	let removed_any = stack.len() != before;
 
 	let mut touched: HashSet<u32> = [chunk_key_of(x, y)].into_iter().collect();

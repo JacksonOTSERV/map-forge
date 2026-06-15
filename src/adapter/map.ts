@@ -175,6 +175,17 @@ export async function deleteItem(mapId: number, z: number, x: number, y: number,
   return invoke<number[]>('delete_item', { mapId, z, x, y, automagic });
 }
 
+export async function eraseBrush(
+  mapId: number,
+  z: number,
+  x: number,
+  y: number,
+  serverId: number,
+  automagic: boolean
+): Promise<number[]> {
+  return invoke<number[]>('erase_brush', { mapId, z, x, y, serverId, automagic });
+}
+
 export async function eraseArea(
   mapId: number,
   z: number,

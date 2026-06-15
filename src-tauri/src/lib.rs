@@ -33,7 +33,8 @@ use commands::{
 	read_file_text, read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic, write_file_text,
 };
 use map_edit::{
-	copy_selection, delete_item, delete_selection, erase_area, house_sizes, move_item, paint_tiles, paint_zone, paste_selection,
+	copy_selection, delete_item, delete_selection, erase_area, erase_brush, house_sizes, move_item, paint_tiles, paint_zone,
+	paste_selection,
 	preview_paint, set_house, CopyBuffer,
 };
 use map_load::open_otbm;
@@ -107,6 +108,7 @@ pub fn run() {
 			move_item,
 			delete_item,
 			erase_area,
+			erase_brush,
 			delete_selection,
 			copy_selection,
 			paste_selection,

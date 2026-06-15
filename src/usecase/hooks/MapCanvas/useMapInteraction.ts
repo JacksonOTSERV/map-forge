@@ -36,6 +36,7 @@ import {
   setHouse,
   eraseArea,
   paintZone,
+  eraseBrush,
   deleteItem,
   paintTiles,
   previewPaint,
@@ -566,6 +567,19 @@ export function useMapInteraction(deps: InteractionDeps) {
       .catch((err) => console.error('Failed to erase tile', err));
   }
 
+  function eraseBrushAt(pos: Position, serverId: number) {
+    const key = `${pos.x},${pos.y},${pos.z}`;
+    if (key === scene.lastPaintKey.current) return;
+    scene.lastPaintKey.current = key;
+    eraseBrush(inputs.current.map.id, pos.z, pos.x, pos.y, serverId, inputs.current.automagic)
+      .then((touched) => {
+        if (touched.length === 0) tiles.queueRefetch(pos.x, pos.y, pos.z);
+        for (const k of touched) tiles.queueRefetch((k >>> 16) * CHUNK, (k & 0xffff) * CHUNK, pos.z);
+        notifyEdit(pos.z);
+      })
+      .catch((err) => console.error('Failed to erase brush', err));
+  }
+
   async function refetchChunkNow(x: number, y: number, z: number) {
     const cx = Math.floor(x / CHUNK);
     const cy = Math.floor(y / CHUNK);
@@ -909,9 +923,10 @@ export function useMapInteraction(deps: InteractionDeps) {
     if (canBrush) {
       if (e.ctrlKey) {
         scene.erasing.current = true;
+        scene.eraseBrushId.current = brush!.serverId!;
         scene.lastPaintKey.current = null;
         recordItemEdit();
-        eraseAt(tileAt(e));
+        eraseBrushAt(tileAt(e), brush!.serverId!);
         return;
       }
       scene.painting.current = true;
@@ -989,7 +1004,8 @@ export function useMapInteraction(deps: InteractionDeps) {
     } else if (housePainting.current) {
       housePaintAt(tileAt(e));
     } else if (scene.erasing.current) {
-      eraseAt(tileAt(e));
+      if (scene.eraseBrushId.current != null) eraseBrushAt(tileAt(e), scene.eraseBrushId.current);
+      else eraseAt(tileAt(e));
     } else if (camera.panMove(e)) {
       // panned
     } else if (selection.box.current) {
@@ -1047,6 +1063,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     camera.endPan();
     scene.painting.current = false;
     scene.erasing.current = false;
+    scene.eraseBrushId.current = null;
     zonePainting.current = false;
     housePainting.current = false;
     scene.lastPaintKey.current = null;
@@ -1062,6 +1079,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     finishCreatureStroke();
     scene.painting.current = false;
     scene.erasing.current = false;
+    scene.eraseBrushId.current = null;
     zonePainting.current = false;
     housePainting.current = false;
     scene.lastPaintKey.current = null;

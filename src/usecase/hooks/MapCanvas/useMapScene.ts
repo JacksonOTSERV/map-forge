@@ -33,6 +33,7 @@ export interface MapScene {
   lastHoverKey: React.MutableRefObject<string | null>;
   painting: React.MutableRefObject<boolean>;
   erasing: React.MutableRefObject<boolean>;
+  eraseBrushId: React.MutableRefObject<number | null>;
   ctrlDown: React.MutableRefObject<boolean>;
   lastPaintKey: React.MutableRefObject<string | null>;
   moveDrag: React.MutableRefObject<MoveDrag | null>;
@@ -58,6 +59,7 @@ export function useMapScene(): MapScene {
     lastHoverKey: React.useRef<string | null>(null),
     painting: React.useRef(false),
     erasing: React.useRef(false),
+    eraseBrushId: React.useRef<number | null>(null),
     ctrlDown: React.useRef(false),
     lastPaintKey: React.useRef<string | null>(null),
     moveDrag: React.useRef<MoveDrag | null>(null),
