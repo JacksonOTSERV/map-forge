@@ -15,6 +15,8 @@ pub struct MapProperties {
 	items_major: u32,
 	items_minor: u32,
 	town_count: u32,
+	waypoint_count: u32,
+	waypoint_file: String,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +67,14 @@ pub fn get_map_properties(map_id: u32, map_state: tauri::State<MapState>) -> Res
 		items_major: m.items_major,
 		items_minor: m.items_minor,
 		town_count: m.towns.len() as u32,
+		waypoint_count: m.waypoints.len() as u32,
+		waypoint_file: m
+			.source_path
+			.as_ref()
+			.and_then(|p| p.file_stem())
+			.and_then(|s| s.to_str())
+			.map(|stem| format!("{}-waypoint.xml", stem))
+			.unwrap_or_default(),
 	})
 }
 

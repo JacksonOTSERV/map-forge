@@ -458,7 +458,13 @@ const App = () => {
 
       <MapProperties open={mapPropsOpen} mapId={active?.map.id ?? null} onOpenChange={setMapPropsOpen} />
 
-      <MapStatistics open={statsOpen} onOpenChange={setStatsOpen} mapId={active?.map.id ?? null} />
+      <MapStatistics
+        spawns={spawns}
+        open={statsOpen}
+        waypoints={waypoints}
+        onOpenChange={setStatsOpen}
+        mapId={active?.map.id ?? null}
+      />
 
       <Workspace dock={dock} tabs={mapTabs} progress={progress} renderPanel={renderPanel}>
         {active && assets ? (

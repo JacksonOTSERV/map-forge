@@ -106,8 +106,15 @@ const MapPropertiesDialog = ({ open, mapId, onSaved, onOpenChange }: MapProperti
               External Spawn File
               <Input value={props.spawnFile} onChange={(e) => patch({ spawnFile: e.target.value })} />
             </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              External Waypoint File
+              <Input disabled value={props.waypointFile} />
+            </label>
 
-            <Label className="text-muted-foreground">{props.townCount} towns</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-muted-foreground">{props.townCount} towns</Label>
+              <Label className="text-muted-foreground">{props.waypointCount} waypoints</Label>
+            </div>
           </div>
         )}
         <DialogFooter>

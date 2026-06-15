@@ -54,6 +54,8 @@ export interface MapProperties {
   itemsMajor: number;
   itemsMinor: number;
   townCount: number;
+  waypointCount: number;
+  waypointFile: string;
 }
 
 export interface MapFloorStat {

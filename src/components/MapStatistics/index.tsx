@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { MapStatistics } from '~/domain/map';
+import { MapSpawns } from '~/domain/creature';
+import { MapWaypoints } from '~/domain/waypoint';
 import { getMapStatistics } from '~/adapter/map';
 import { Button } from '~/components/commons/ui/button';
 import { Dialog, DialogTitle, DialogHeader, DialogFooter, DialogContent } from '~/components/commons/ui/dialog';
@@ -8,6 +10,8 @@ import { Dialog, DialogTitle, DialogHeader, DialogFooter, DialogContent } from '
 interface MapStatisticsDialogProps {
   open: boolean;
   mapId: number | null;
+  spawns: MapSpawns | null;
+  waypoints: MapWaypoints | null;
   onOpenChange: (open: boolean) => void;
 }
 
@@ -25,9 +29,14 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
   </div>
 );
 
-const MapStatisticsDialog = ({ open, mapId, onOpenChange }: MapStatisticsDialogProps) => {
+const MapStatisticsDialog = ({ open, mapId, spawns, waypoints, onOpenChange }: MapStatisticsDialogProps) => {
   const [stats, setStats] = React.useState<MapStatistics | null>(null);
   const [loading, setLoading] = React.useState(false);
+
+  const spawnCount = spawns?.areas.length ?? 0;
+  const npcCount = spawns?.placements.filter((p) => p.isNpc).length ?? 0;
+  const creatureCount = (spawns?.placements.length ?? 0) - npcCount;
+  const waypointCount = waypoints?.list.length ?? 0;
 
   React.useEffect(() => {
     if (!open || mapId === null) {
@@ -70,6 +79,13 @@ const MapStatisticsDialog = ({ open, mapId, onOpenChange }: MapStatisticsDialogP
                 {stats.floors.map((f) => (
                   <Row key={f.z} label={`Floor ${f.z}`} value={`${f.tileCount} tiles`} />
                 ))}
+              </Section>
+
+              <Section title="Markers">
+                <Row label="Spawns" value={spawnCount} />
+                <Row label="Creatures" value={creatureCount} />
+                <Row label="NPCs" value={npcCount} />
+                <Row label="Waypoints" value={waypointCount} />
               </Section>
 
               <Section title="Town data">
