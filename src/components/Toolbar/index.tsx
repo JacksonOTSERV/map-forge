@@ -44,9 +44,31 @@ const Toolbar = ({
   const win = getCurrentWindow();
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
+  const onDragStart = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('button, [role="menuitem"], input')) return;
+    if (e.detail === 2) {
+      void win.toggleMaximize();
+      return;
+    }
+
+    const onMove = () => {
+      cleanup();
+      void win.startDragging();
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', cleanup);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', cleanup);
+  };
+
   return (
     <div
-      data-tauri-drag-region
+      onMouseDown={onDragStart}
       className="flex h-8 flex-shrink-0 items-center gap-1 border-b border-border/50 bg-toolbar-bg pl-1.5 pr-3"
     >
       <AppMenu
