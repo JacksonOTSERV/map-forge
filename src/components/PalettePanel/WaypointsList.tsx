@@ -1,6 +1,7 @@
 import React from 'react';
 import { Copy, Plus, Trash2, MapPin, LocateFixed } from 'lucide-react';
 
+import { Hint } from '~/components/commons/ui/tooltip';
 import { Waypoint, MapWaypoints } from '~/domain/waypoint';
 import { sortWaypoints, removeWaypoint, renameWaypoint } from '~/usecase/waypointEdits';
 
@@ -34,13 +35,11 @@ const WaypointsList = ({ waypoints, onGoto, onCopyPosition, onEdit, onAdd }: Way
     <div className="flex h-full flex-col">
       <div className="flex-shrink-0 border-b border-border/50 p-2">
         <PaletteSearch value={query} onChange={setQuery} placeholder="Search waypoints...">
-          <button
-            onClick={onAdd}
-            title="Add waypoint at view center"
-            className="rounded p-0.5 text-muted-foreground hover:bg-item-hover hover:text-foreground"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <Hint label="Add waypoint at view center">
+            <button onClick={onAdd} className="rounded p-0.5 text-muted-foreground hover:bg-item-hover hover:text-foreground">
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </Hint>
         </PaletteSearch>
       </div>
 
@@ -72,36 +71,37 @@ const WaypointsList = ({ waypoints, onGoto, onCopyPosition, onEdit, onAdd }: Way
                   }}
                 />
               ) : (
-                <button
-                  onClick={() => onGoto(wp)}
-                  title={`${wp.x}, ${wp.y}, ${wp.z}`}
-                  className="min-w-0 flex-1 truncate text-left text-foreground"
-                >
-                  {wp.name}
-                </button>
+                <Hint side="left" label={`${wp.x}, ${wp.y}, ${wp.z}`}>
+                  <button onClick={() => onGoto(wp)} className="min-w-0 flex-1 truncate text-left text-foreground">
+                    {wp.name}
+                  </button>
+                </Hint>
               )}
               <span className="flex-shrink-0 font-mono text-[9px] text-muted-foreground">{wp.z}</span>
-              <button
-                title="Go to waypoint"
-                onClick={() => onGoto(wp)}
-                className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-primary group-hover:opacity-100"
-              >
-                <LocateFixed className="h-3 w-3" />
-              </button>
-              <button
-                title="Copy position"
-                onClick={() => onCopyPosition(wp)}
-                className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-foreground group-hover:opacity-100"
-              >
-                <Copy className="h-3 w-3" />
-              </button>
-              <button
-                title="Delete"
-                onClick={() => waypoints && onEdit(removeWaypoint(waypoints, wp.name))}
-                className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-destructive group-hover:opacity-100"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+              <Hint label="Go to waypoint">
+                <button
+                  onClick={() => onGoto(wp)}
+                  className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-primary group-hover:opacity-100"
+                >
+                  <LocateFixed className="h-3 w-3" />
+                </button>
+              </Hint>
+              <Hint label="Copy position">
+                <button
+                  onClick={() => onCopyPosition(wp)}
+                  className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-foreground group-hover:opacity-100"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+              </Hint>
+              <Hint label="Delete">
+                <button
+                  onClick={() => waypoints && onEdit(removeWaypoint(waypoints, wp.name))}
+                  className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-destructive group-hover:opacity-100"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </Hint>
             </div>
           ))
         )}

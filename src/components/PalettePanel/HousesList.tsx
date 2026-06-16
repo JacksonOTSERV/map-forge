@@ -3,6 +3,7 @@ import { Plus, Home, Trash2, Pencil, DoorOpen, CircleSlash2 } from 'lucide-react
 
 import { Town } from '~/domain/map';
 import { cn } from '~/usecase/classNames';
+import { Hint } from '~/components/commons/ui/tooltip';
 import { useTool } from '~/usecase/context/ToolContext';
 import { House, MapHouses, sortHouses, nextHouseId } from '~/domain/house';
 
@@ -125,21 +126,20 @@ const HousesList = ({ houses, towns, onEdit, onGoto }: HousesListProps) => {
         </select>
         <PaletteSearch value={query} onChange={setQuery} placeholder="Search houses...">
           {activeHouseId != null && (
-            <button
-              title="Deselect house"
-              onClick={() => setActiveHouse(null)}
-              className="rounded p-0.5 text-muted-foreground hover:bg-item-hover hover:text-foreground"
-            >
-              <CircleSlash2 className="h-3.5 w-3.5" />
-            </button>
+            <Hint label="Deselect house">
+              <button
+                onClick={() => setActiveHouse(null)}
+                className="rounded p-0.5 text-muted-foreground hover:bg-item-hover hover:text-foreground"
+              >
+                <CircleSlash2 className="h-3.5 w-3.5" />
+              </button>
+            </Hint>
           )}
-          <button
-            title="Add house"
-            onClick={addHouse}
-            className="rounded p-0.5 text-muted-foreground hover:bg-item-hover hover:text-foreground"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <Hint label="Add house">
+            <button onClick={addHouse} className="rounded p-0.5 text-muted-foreground hover:bg-item-hover hover:text-foreground">
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </Hint>
         </PaletteSearch>
       </div>
 
@@ -160,29 +160,31 @@ const HousesList = ({ houses, towns, onEdit, onGoto }: HousesListProps) => {
             >
               <Home className={cn('h-3 w-3 flex-shrink-0', h.guildhall ? 'text-amber-400' : 'text-muted-foreground')} />
               <span className="w-8 flex-shrink-0 font-mono text-[9px] text-muted-foreground">{h.id}</span>
-              <span title={`${h.name} (rent ${h.rent})`} className="min-w-0 flex-1 truncate text-foreground">
-                {h.name}
-              </span>
-              <button
-                title="Edit house"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  editHouse(h);
-                }}
-                className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-foreground group-hover:opacity-100"
-              >
-                <Pencil className="h-3 w-3" />
-              </button>
-              <button
-                title="Remove house"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeHouse(h.id);
-                }}
-                className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-destructive group-hover:opacity-100"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+              <Hint side="left" label={`${h.name} (rent ${h.rent})`}>
+                <span className="min-w-0 flex-1 truncate text-foreground">{h.name}</span>
+              </Hint>
+              <Hint label="Edit house">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    editHouse(h);
+                  }}
+                  className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-foreground group-hover:opacity-100"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </Hint>
+              <Hint label="Remove house">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeHouse(h.id);
+                  }}
+                  className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-item-hover hover:text-destructive group-hover:opacity-100"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </Hint>
             </div>
           ))
         )}

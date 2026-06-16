@@ -3,6 +3,7 @@ import { Check, MoreVertical } from 'lucide-react';
 
 import { cn } from '~/usecase/classNames';
 import { MapCorner, MAP_CORNERS } from '~/domain/dock';
+import { Hint } from '~/components/commons/ui/tooltip';
 
 interface PanelDockMenuProps {
   corner: MapCorner | null;
@@ -37,14 +38,15 @@ const PanelDockMenu = ({ corner, onFloat, onPick }: PanelDockMenuProps) => {
 
   return (
     <div ref={ref} className="relative">
-      <button
-        title="Dock options"
-        onClick={() => setOpen((v) => !v)}
-        onPointerDown={(e) => e.stopPropagation()}
-        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-item-hover hover:text-foreground"
-      >
-        <MoreVertical className="h-3.5 w-3.5" />
-      </button>
+      <Hint side="bottom" label="Dock options">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-item-hover hover:text-foreground"
+        >
+          <MoreVertical className="h-3.5 w-3.5" />
+        </button>
+      </Hint>
       {open && (
         <div
           onPointerDown={(e) => e.stopPropagation()}

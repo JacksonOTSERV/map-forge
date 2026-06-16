@@ -5,6 +5,7 @@ import { cn } from '~/usecase/classNames';
 import { fetchMinimap } from '~/adapter/minimap';
 import { miniMapRgb } from '~/usecase/minimapColor';
 import { MapView, MinimapImage } from '~/domain/map';
+import { Hint } from '~/components/commons/ui/tooltip';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 
 const TILE = 32;
@@ -308,14 +309,15 @@ const Minimap = ({ mapId, floorZ, paletteReady, onClose, headerMenu, dragHandle,
         <span className="ml-auto font-mono text-[10px] text-muted-foreground">z {floorZ}</span>
         {headerMenu && <div className="ml-1">{headerMenu}</div>}
         {onClose && (
-          <button
-            onClick={onClose}
-            title="Close minimap"
-            onPointerDown={(e) => e.stopPropagation()}
-            className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-item-hover hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <Hint side="bottom" label="Close minimap">
+            <button
+              onClick={onClose}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-item-hover hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </Hint>
         )}
       </div>
 
@@ -333,21 +335,23 @@ const Minimap = ({ mapId, floorZ, paletteReady, onClose, headerMenu, dragHandle,
           onPointerDown={(e) => e.stopPropagation()}
           className="absolute right-2 top-2 flex flex-col items-center overflow-hidden rounded-md border border-border/60 bg-card/90 shadow-island backdrop-blur-sm"
         >
-          <button
-            title="Zoom in"
-            onClick={() => zoomBy(1)}
-            className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:bg-item-hover hover:text-foreground"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <Hint side="left" label="Zoom in">
+            <button
+              onClick={() => zoomBy(1)}
+              className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:bg-item-hover hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </Hint>
           <span className="w-6 text-center font-mono text-[10px] text-foreground">{cellPx}</span>
-          <button
-            title="Zoom out"
-            onClick={() => zoomBy(-1)}
-            className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:bg-item-hover hover:text-foreground"
-          >
-            <Minus className="h-3.5 w-3.5" />
-          </button>
+          <Hint side="left" label="Zoom out">
+            <button
+              onClick={() => zoomBy(-1)}
+              className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:bg-item-hover hover:text-foreground"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+          </Hint>
         </div>
       </div>
     </div>

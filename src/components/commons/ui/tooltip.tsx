@@ -25,4 +25,27 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+type Side = 'top' | 'right' | 'bottom' | 'left';
+type Align = 'start' | 'center' | 'end';
+
+interface HintProps {
+  side?: Side;
+  align?: Align;
+  sideOffset?: number;
+  label: React.ReactNode;
+  children: React.ReactNode;
+}
+
+const Hint = ({ label, children, side = 'top', align = 'center', sideOffset }: HintProps) => {
+  if (label === null || label === undefined || label === '') return <>{children}</>;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side} align={align} className="max-w-xs" sideOffset={sideOffset}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+};
+
+export { Hint, Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

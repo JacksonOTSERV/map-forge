@@ -1,6 +1,7 @@
 import { X, Plus } from 'lucide-react';
 
 import { cn } from '~/usecase/classNames';
+import { Hint } from '~/components/commons/ui/tooltip';
 
 export interface MapTabInfo {
   id: string;
@@ -47,14 +48,15 @@ const MapTabs = ({ tabs, activeId, disabled, onNew, onSelect, onClose }: MapTabs
         );
       })}
 
-      <button
-        onClick={onNew}
-        title="New map"
-        disabled={disabled}
-        className="flex w-8 flex-shrink-0 items-center justify-center text-muted-foreground hover:bg-card/40 hover:text-foreground disabled:opacity-40"
-      >
-        <Plus className="h-4 w-4" />
-      </button>
+      <Hint side="bottom" label="New map">
+        <button
+          onClick={onNew}
+          disabled={disabled}
+          className="flex w-8 flex-shrink-0 items-center justify-center text-muted-foreground hover:bg-card/40 hover:text-foreground disabled:opacity-40"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </Hint>
     </div>
   );
 };

@@ -7,6 +7,7 @@ import { LoadedSprite } from '~/domain/sprite';
 import { loadSprites } from '~/adapter/sprites';
 import { mapClientIds } from '~/adapter/assets';
 import { House, MapHouses } from '~/domain/house';
+import { Hint } from '~/components/commons/ui/tooltip';
 import { useTool } from '~/usecase/context/ToolContext';
 import { Waypoint, MapWaypoints } from '~/domain/waypoint';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
@@ -288,26 +289,28 @@ const PalettePanel = ({
       >
         <h2 className="text-xs font-semibold uppercase tracking-wide text-foreground">Palette</h2>
         {isCreature && onPickCreatureDir && (
-          <button
-            onClick={onPickCreatureDir}
-            title="Select creature data folder"
-            className="ml-2 flex h-5 items-center gap-1 rounded border border-border/50 bg-card/60 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-item-hover hover:text-foreground"
-          >
-            <FolderOpen className="h-3 w-3" />
-            Data
-          </button>
+          <Hint side="bottom" label="Select creature data folder">
+            <button
+              onClick={onPickCreatureDir}
+              className="ml-2 flex h-5 items-center gap-1 rounded border border-border/50 bg-card/60 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-item-hover hover:text-foreground"
+            >
+              <FolderOpen className="h-3 w-3" />
+              Data
+            </button>
+          </Hint>
         )}
         <span className="ml-auto font-mono text-[10px] text-muted-foreground">
           {isWaypoints ? (waypoints?.list.length ?? 0) : isHouses ? (houses?.list.length ?? 0) : tiles.length}
         </span>
         {onClose && (
-          <button
-            onClick={onClose}
-            title="Close palette"
-            className="ml-2 flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-item-hover hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <Hint side="bottom" label="Close palette">
+            <button
+              onClick={onClose}
+              className="ml-2 flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-item-hover hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </Hint>
         )}
       </div>
 
@@ -371,18 +374,18 @@ const PalettePanel = ({
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1">
               {tiles.map((tile) => (
-                <button
-                  key={tile.brush.key}
-                  title={tile.brush.name}
-                  data-brush-key={tile.brush.key}
-                  onClick={() => handleSelect(tile)}
-                  className={cn(
-                    'flex aspect-square items-center justify-center overflow-hidden rounded border bg-muted/40 transition-colors hover:bg-item-hover',
-                    selectedKey === tile.brush.key ? 'border-primary bg-primary/15' : 'border-border/50'
-                  )}
-                >
-                  <BrushThumbnail size={CELL_SIZE} layout={tile.layout} version={renderVersion} cache={spriteCache.current} />
-                </button>
+                <Hint key={tile.brush.key} label={tile.brush.name}>
+                  <button
+                    data-brush-key={tile.brush.key}
+                    onClick={() => handleSelect(tile)}
+                    className={cn(
+                      'flex aspect-square items-center justify-center overflow-hidden rounded border bg-muted/40 transition-colors hover:bg-item-hover',
+                      selectedKey === tile.brush.key ? 'border-primary bg-primary/15' : 'border-border/50'
+                    )}
+                  >
+                    <BrushThumbnail size={CELL_SIZE} layout={tile.layout} version={renderVersion} cache={spriteCache.current} />
+                  </button>
+                </Hint>
               ))}
             </div>
           )}

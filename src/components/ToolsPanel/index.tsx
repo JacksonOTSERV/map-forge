@@ -14,6 +14,7 @@ import {
 } from '@tabler/icons-react';
 
 import { cn } from '~/usecase/classNames';
+import { Hint } from '~/components/commons/ui/tooltip';
 import { useTool } from '~/usecase/context/ToolContext';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { TOOLS, ToolId, isZoneTool, isHouseTool } from '~/domain/tools';
@@ -75,72 +76,78 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
         return (
           <div key={tool.id} className="flex w-full flex-col items-center">
             {tool.id === 'zone_pz' && <div className="my-1 h-px w-5 bg-border/60" />}
-            <button
-              title={tool.label}
-              onClick={() => setActiveTool(tool.id)}
-              className={cn(
-                'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
-                selected ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
-              )}
-            >
-              <Icon className="h-[18px] w-[18px]" />
-            </button>
+            <Hint side="right" label={tool.label}>
+              <button
+                onClick={() => setActiveTool(tool.id)}
+                className={cn(
+                  'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+                  selected ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+                )}
+              >
+                <Icon className="h-[18px] w-[18px]" />
+              </button>
+            </Hint>
           </div>
         );
       })}
 
       <div className="mt-auto flex w-full flex-col items-center gap-0.5 pt-1">
         <div className="my-1 h-px w-5 bg-border/60" />
-        <button
-          onClick={toggleCreatures}
-          title="Show creatures and NPCs"
-          className={cn(
-            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
-            showCreatures ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
-          )}
-        >
-          <IconSpider className="h-[18px] w-[18px]" />
-        </button>
-        <button
-          onClick={toggleSpawns}
-          title="Show spawn areas"
-          className={cn(
-            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
-            showSpawns ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
-          )}
-        >
-          <IconViewfinder className="h-[18px] w-[18px]" />
-        </button>
-        <button
-          title="Show waypoints"
-          onClick={toggleWaypoints}
-          className={cn(
-            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
-            showWaypoints ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
-          )}
-        >
-          <IconFlag3 className="h-[18px] w-[18px]" />
-        </button>
-        <button
-          title="Show houses"
-          onClick={toggleHouses}
-          className={cn(
-            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
-            showHouses ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
-          )}
-        >
-          <IconHome className="h-[18px] w-[18px]" />
-        </button>
-        <button
-          onClick={toggleAutomagic}
-          title="Automatic borders - auto-border, walls, tables, carpets, mountains"
-          className={cn(
-            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
-            automagic ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
-          )}
-        >
-          <IconScanLetterA className="h-[18px] w-[18px]" />
-        </button>
+        <Hint side="right" label="Show creatures and NPCs">
+          <button
+            onClick={toggleCreatures}
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+              showCreatures ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+            )}
+          >
+            <IconSpider className="h-[18px] w-[18px]" />
+          </button>
+        </Hint>
+        <Hint side="right" label="Show spawn areas">
+          <button
+            onClick={toggleSpawns}
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+              showSpawns ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+            )}
+          >
+            <IconViewfinder className="h-[18px] w-[18px]" />
+          </button>
+        </Hint>
+        <Hint side="right" label="Show waypoints">
+          <button
+            onClick={toggleWaypoints}
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+              showWaypoints ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+            )}
+          >
+            <IconFlag3 className="h-[18px] w-[18px]" />
+          </button>
+        </Hint>
+        <Hint side="right" label="Show houses">
+          <button
+            onClick={toggleHouses}
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+              showHouses ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+            )}
+          >
+            <IconHome className="h-[18px] w-[18px]" />
+          </button>
+        </Hint>
+        <Hint side="right" label="Automatic borders - auto-border, walls, tables, carpets, mountains">
+          <button
+            onClick={toggleAutomagic}
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+              automagic ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+            )}
+          >
+            <IconScanLetterA className="h-[18px] w-[18px]" />
+          </button>
+        </Hint>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { cn } from '~/usecase/classNames';
 import { ThingType } from '~/domain/tibia';
 import { LoadedSprite } from '~/domain/sprite';
 import { loadSprites } from '~/adapter/sprites';
+import { Hint } from '~/components/commons/ui/tooltip';
 import { brushSpriteLayout } from '~/usecase/brushSprite';
 import { SelectedItem } from '~/components/MapCanvas/types';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
@@ -152,13 +153,14 @@ const ItemPropertiesPanel = ({ mapId, item, items, itemNames, dragHandle, onClos
       >
         <h2 className="text-xs font-semibold uppercase tracking-wide text-foreground">Properties</h2>
         {onClose && (
-          <button
-            onClick={onClose}
-            title="Close panel"
-            className="ml-auto flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-item-hover hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <Hint side="bottom" label="Close panel">
+            <button
+              onClick={onClose}
+              className="ml-auto flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-item-hover hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </Hint>
         )}
       </div>
 

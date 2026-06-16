@@ -38,6 +38,7 @@ import CreatureDataDialog from '~/components/CreatureDataDialog';
 import StatusBar, { StatusBarApi } from '~/components/StatusBar';
 import { useMapTabs } from '~/usecase/hooks/Workspace/useMapTabs';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
+import { TooltipProvider } from '~/components/commons/ui/tooltip';
 import ItemPropertiesPanel from '~/components/ItemPropertiesPanel';
 import { useTool, ToolProvider } from '~/usecase/context/ToolContext';
 import { useMapSpawns } from '~/usecase/hooks/Workspace/useMapSpawns';
@@ -579,7 +580,9 @@ const Root = () => (
   <AssetsProvider>
     <EditorSettingsProvider>
       <ToolProvider>
-        <App />
+        <TooltipProvider delayDuration={300} skipDelayDuration={150}>
+          <App />
+        </TooltipProvider>
       </ToolProvider>
     </EditorSettingsProvider>
   </AssetsProvider>
