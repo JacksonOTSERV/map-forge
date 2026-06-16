@@ -22,7 +22,12 @@ interface ItemPropertiesPanelProps {
   itemNames: Map<number, string> | null;
 }
 
-const ItemSprite = ({ clientId, items, cache, version }: {
+const ItemSprite = ({
+  clientId,
+  items,
+  cache,
+  version
+}: {
   version: number;
   clientId: number;
   items: Map<number, ThingType>;
@@ -62,13 +67,7 @@ const ItemSprite = ({ clientId, items, cache, version }: {
   }, [clientId, items, cache, version]);
 
   return (
-    <canvas
-      ref={ref}
-      width={THUMB}
-      height={THUMB}
-      className="h-8 w-8 flex-shrink-0"
-      style={{ imageRendering: 'pixelated' }}
-    />
+    <canvas ref={ref} width={THUMB} height={THUMB} className="h-8 w-8 flex-shrink-0" style={{ imageRendering: 'pixelated' }} />
   );
 };
 
@@ -122,9 +121,7 @@ const ItemPropertiesPanel = ({ mapId, item, items, itemNames, dragHandle, onClos
       }
     }
     if (needed.length === 0) return;
-    loadSprites(assets.sprPath, needed, assets.transparency, spriteCache.current).then(() =>
-      setSpriteVer((v) => v + 1)
-    );
+    loadSprites(assets.sprPath, needed, assets.transparency, spriteCache.current).then(() => setSpriteVer((v) => v + 1));
   }, [data, items, assets]);
 
   const sel: TileItemEntry | null = data && selectedIdx >= 0 ? (data.items[selectedIdx] ?? null) : null;
@@ -166,9 +163,7 @@ const ItemPropertiesPanel = ({ mapId, item, items, itemNames, dragHandle, onClos
       </div>
 
       {!item || !data ? (
-        <div className="flex flex-1 items-center justify-center p-3 text-xs text-muted-foreground">
-          Click an item to inspect
-        </div>
+        <div className="flex flex-1 items-center justify-center p-3 text-xs text-muted-foreground">Click an item to inspect</div>
       ) : (
         <div className="flex-1 overflow-y-auto text-xs">
           <div className="border-b border-border/50 px-2 pb-1 pt-1.5">
@@ -182,14 +177,7 @@ const ItemPropertiesPanel = ({ mapId, item, items, itemNames, dragHandle, onClos
                   i === selectedIdx ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
                 )}
               >
-                {items && (
-                  <ItemSprite
-                    items={items}
-                    version={spriteVer}
-                    clientId={entry.clientId}
-                    cache={spriteCache.current}
-                  />
-                )}
+                {items && <ItemSprite items={items} version={spriteVer} clientId={entry.clientId} cache={spriteCache.current} />}
                 <span className="min-w-0 truncate">
                   {entry.serverId} - {nameOf(entry) || 'item'}
                 </span>
@@ -200,9 +188,7 @@ const ItemPropertiesPanel = ({ mapId, item, items, itemNames, dragHandle, onClos
           {sel && (
             <>
               <div className="border-b border-border/50 px-2 pb-1.5 pt-1.5">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Action
-                </div>
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Action</div>
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Action ID:</span>
@@ -241,18 +227,14 @@ const ItemPropertiesPanel = ({ mapId, item, items, itemNames, dragHandle, onClos
 
               {sel.desc && (
                 <div className="border-b border-border/50 px-2 pb-1.5 pt-1.5">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Description
-                  </div>
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</div>
                   <div className="rounded bg-secondary/50 p-1.5 font-mono text-foreground">{sel.desc}</div>
                 </div>
               )}
 
               {(sel.charges > 0 || sel.tier > 0) && (
                 <div className="px-2 pb-1.5 pt-1.5">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Details
-                  </div>
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Details</div>
                   {sel.charges > 0 && (
                     <div className="flex items-center justify-between py-0.5">
                       <span className="text-muted-foreground">Charges:</span>
