@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import { DEFAULT_DATA_DIR } from '~/adapter/assets';
+import { defaultDataDir } from '~/adapter/assets';
 import { BrushKind, PaletteData, PaletteBrush, PaletteTileset } from '~/domain/palette';
 
 function parseXml(text: string): Document {
@@ -168,7 +168,7 @@ async function allServerIds(): Promise<number[]> {
   }
 }
 
-export async function loadPalette(dir = DEFAULT_DATA_DIR): Promise<PaletteData> {
+export async function loadPalette(dir = defaultDataDir()): Promise<PaletteData> {
   const [tilesetsDoc, groundsDoc, wallsDoc, doodadsDoc, creaturesDoc, serverIds] = await Promise.all([
     readXml(dir, 'tilesets.xml'),
     readXml(dir, 'grounds.xml'),

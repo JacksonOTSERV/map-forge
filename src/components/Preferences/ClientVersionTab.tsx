@@ -24,10 +24,16 @@ const ClientVersionTab = ({ config, onChange }: ClientVersionTabProps) => {
 
   const setPath = (version: number, path: string) => onChange({ ...config, paths: { ...config.paths, [version]: path } });
 
-  const clearPath = (version: number) => {
+  const clearPath = (version: number) => setPath(version, '');
+
+  const removeVersion = (version: number) => {
     const paths = { ...config.paths };
     delete paths[version];
-    onChange({ ...config, paths });
+    const remaining = Object.keys(paths)
+      .map(Number)
+      .sort((a, b) => a - b);
+    const defaultVersion = version === config.defaultVersion ? (remaining[0] ?? config.defaultVersion) : config.defaultVersion;
+    onChange({ ...config, paths, defaultVersion });
   };
 
   const pickFolder = async (version: number) => {
@@ -47,15 +53,17 @@ const ClientVersionTab = ({ config, onChange }: ClientVersionTabProps) => {
 
   const addVersion = async (version: number) => {
     const dir = await pickFolder(version);
-    if (dir) setPath(version, dir);
+    setPath(version, dir ?? '');
     setAddKey((k) => k + 1);
   };
 
-  const configured = React.useMemo(() => {
-    const seen = new Set<number>(Object.keys(config.paths).map(Number));
-    seen.add(config.defaultVersion);
-    return [...seen].sort((a, b) => a - b);
-  }, [config.paths, config.defaultVersion]);
+  const configured = React.useMemo(
+    () =>
+      Object.keys(config.paths)
+        .map(Number)
+        .sort((a, b) => a - b),
+    [config.paths]
+  );
 
   const available = VERSIONS.filter((cv) => !configured.includes(cv.value));
 
@@ -102,9 +110,15 @@ const ClientVersionTab = ({ config, onChange }: ClientVersionTabProps) => {
               path={config.paths[version]}
               onClear={() => clearPath(version)}
               onBrowse={() => void browse(version)}
+              onRemove={() => removeVersion(version)}
               isDefault={version === config.defaultVersion}
             />
           ))}
+          {configured.length === 0 && (
+            <div className="rounded-md border border-dashed border-border px-2.5 py-3 text-center text-[11px] text-muted-foreground">
+              No client versions configured. Add one below.
+            </div>
+          )}
         </div>
         {available.length > 0 && (
           <Select key={addKey} onValueChange={(v) => void addVersion(Number(v))}>

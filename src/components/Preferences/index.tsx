@@ -25,6 +25,7 @@ type TabId = 'general' | 'editor' | 'client';
 
 interface PreferencesProps {
   open: boolean;
+  initialTab?: TabId;
   onSaved?: () => void;
   onResetLayout?: () => void;
   onOpenChange: (open: boolean) => void;
@@ -36,18 +37,19 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'client', label: 'Client Version' }
 ];
 
-const Preferences = ({ open, onSaved, onResetLayout, onOpenChange }: PreferencesProps) => {
-  const [tab, setTab] = React.useState<TabId>('general');
+const Preferences = ({ open, initialTab = 'general', onSaved, onResetLayout, onOpenChange }: PreferencesProps) => {
+  const [tab, setTab] = React.useState<TabId>(initialTab);
   const [config, setConfig] = React.useState<ClientConfig>(defaultClientConfig);
   const [general, setGeneral] = React.useState<GeneralConfig>(defaultGeneralConfig);
   const [editor, setEditor] = React.useState<EditorConfig>(defaultEditorConfig);
 
   React.useEffect(() => {
     if (!open) return;
+    setTab(initialTab);
     void loadClientConfig().then(setConfig);
     void loadGeneralConfig().then(setGeneral);
     void loadEditorConfig().then(setEditor);
-  }, [open]);
+  }, [open, initialTab]);
 
   const save = () => {
     void saveClientConfig(config);

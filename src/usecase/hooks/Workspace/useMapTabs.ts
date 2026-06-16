@@ -6,7 +6,7 @@ import { snapZoom } from '~/usecase/zoom';
 import { getMapView, setMapView } from '~/adapter/mapViews';
 import { newOtbm, openOtbm, closeMap, saveOtbm } from '~/adapter/map';
 import { addRecentMap, loadRecentMaps, clearRecentMaps } from '~/adapter/recentMaps';
-import { loadOtb, LoadedAssets, resolveMapItems, DEFAULT_DATA_DIR, loadItemNamesPath } from '~/adapter/assets';
+import { loadOtb, LoadedAssets, defaultDataDir, resolveMapItems, loadItemNamesPath } from '~/adapter/assets';
 
 const NEW_MAP_WIDTH = 1024;
 const NEW_MAP_HEIGHT = 1024;
@@ -66,7 +66,7 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError, o
   const [itemNames, setItemNames] = React.useState<Map<number, string> | null>(null);
   const loadedOtbPath = React.useRef<string | null>(null);
 
-  const bundledOtb = `${DEFAULT_DATA_DIR}/items.otb`;
+  const bundledOtb = `${defaultDataDir()}/items.otb`;
 
   const prepareItems = async (path?: string): Promise<{ otbPath: string; names: Map<number, string> }> => {
     const found = path ? await resolveMapItems(path).catch(() => null) : null;
@@ -188,7 +188,7 @@ export const useMapTabs = (assets: LoadedAssets | null, { setStatus, setError, o
     if (!assets) return;
     const selected = await open({
       multiple: false,
-      defaultPath: DEFAULT_DATA_DIR,
+      defaultPath: defaultDataDir(),
       title: 'Open OTBM map',
       filters: [{ name: 'OTBM Maps', extensions: ['otbm'] }]
     });

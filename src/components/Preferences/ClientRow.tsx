@@ -1,4 +1,4 @@
-import { X, FolderOpen } from 'lucide-react';
+import { X, Trash2, FolderOpen } from 'lucide-react';
 
 import { cn } from '~/usecase/classNames';
 import { Button } from '~/components/commons/ui/button';
@@ -9,9 +9,10 @@ interface ClientRowProps {
   isDefault: boolean;
   onBrowse: () => void;
   onClear: () => void;
+  onRemove: () => void;
 }
 
-const ClientRow = ({ label, path, isDefault, onBrowse, onClear }: ClientRowProps) => (
+const ClientRow = ({ label, path, isDefault, onBrowse, onClear, onRemove }: ClientRowProps) => (
   <div className="flex items-center gap-2 rounded-md border border-border bg-input/40 px-2.5 py-1.5">
     <span className={cn('h-2 w-2 shrink-0 rounded-full', path ? 'bg-primary' : 'border border-muted-foreground')} />
     <span className="w-12 shrink-0 text-xs font-medium">{label}</span>
@@ -37,6 +38,13 @@ const ClientRow = ({ label, path, isDefault, onBrowse, onClear }: ClientRowProps
         <X className="h-3.5 w-3.5" />
       </button>
     )}
+    <button
+      onClick={onRemove}
+      aria-label="Remove version"
+      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+    </button>
   </div>
 );
 

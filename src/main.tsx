@@ -14,6 +14,7 @@ import MapTowns from '~/components/MapTowns';
 import { MapSpawns } from '~/domain/creature';
 import MapCanvas from '~/components/MapCanvas';
 import Workspace from '~/components/Workspace';
+import { openDataDir } from '~/adapter/assets';
 import { PANELS, PanelId } from '~/domain/dock';
 import ToolsPanel from '~/components/ToolsPanel';
 import Preferences from '~/components/Preferences';
@@ -22,6 +23,7 @@ import PalettePanel from '~/components/PalettePanel';
 import { serializeHouseXml } from '~/adapter/houses';
 import MapProperties from '~/components/MapProperties';
 import MapStatistics from '~/components/MapStatistics';
+import AssetsMissing from '~/components/AssetsMissing';
 import { useSetting } from '~/usecase/hooks/useSetting';
 import { serializeSpawnXml } from '~/usecase/spawnEdits';
 import { formatPosition } from '~/usecase/positionFormat';
@@ -53,7 +55,19 @@ const dirOf = (path: string) => path.replace(/[^\\/]+$/, '');
 const spawnFileFallback = (path: string) => (path.split(/[\\/]/).pop() ?? 'map.otbm').replace(/\.otbm$/i, '-spawn.xml');
 
 const App = () => {
-  const { assets, palette, status, error, minimapReady, setStatus, setError } = useAssetsBundle();
+  const {
+    assets,
+    palette,
+    status,
+    error,
+    dataDir,
+    clientConfigured,
+    assetsMissing,
+    retryAssets,
+    minimapReady,
+    setStatus,
+    setError
+  } = useAssetsBundle();
   const { copyPositionFormat, reloadGeneral, reloadEditor } = useEditorSettings();
 
   const [minimapOpen, setMinimapOpen] = useSetting('minimapOpen', false);
@@ -62,6 +76,11 @@ const App = () => {
   const [mapPropsOpen, setMapPropsOpen] = React.useState(false);
   const [statsOpen, setStatsOpen] = React.useState(false);
   const [preferencesOpen, setPreferencesOpen] = React.useState(false);
+  const [prefsTab, setPrefsTab] = React.useState<'general' | 'editor' | 'client'>('general');
+  const openPreferences = React.useCallback((tab: 'general' | 'editor' | 'client' = 'general') => {
+    setPrefsTab(tab);
+    setPreferencesOpen(true);
+  }, []);
 
   const savingRef = React.useRef(false);
   const mapViewRef = React.useRef<MapView | null>(null);
@@ -300,7 +319,7 @@ const App = () => {
     openEditTowns,
     openMapProperties,
     openMapStatistics,
-    openPreferences: () => setPreferencesOpen(true)
+    openPreferences: () => openPreferences()
   });
 
   savingRef.current = !!saving;
@@ -400,12 +419,13 @@ const App = () => {
         onMapProperties={openMapProperties}
         onMapStatistics={openMapStatistics}
         onSaveAs={() => void handleSaveAs()}
+        onOpenPreferences={() => openPreferences()}
         onOpenRecent={(path) => void openPath(path)}
         onCloseMap={() => activeId && closeTab(activeId)}
-        onOpenPreferences={() => setPreferencesOpen(true)}
       />
 
       <Preferences
+        initialTab={prefsTab}
         open={preferencesOpen}
         onResetLayout={dock.resetLayout}
         onOpenChange={setPreferencesOpen}
@@ -457,6 +477,14 @@ const App = () => {
             onEditWaypoints={handleEditWaypoints}
             onPlaceWaypoint={() => setPlacingWaypoint(null)}
             onEdit={(z) => minimapApiRef.current?.markDirty(z)}
+          />
+        ) : assetsMissing ? (
+          <AssetsMissing
+            dataDir={dataDir}
+            onRetry={retryAssets}
+            clientConfigured={clientConfigured}
+            onOpenSettings={() => openPreferences('client')}
+            onOpenFolder={() => void openDataDir(dataDir.replace(/[\\/][^\\/]+$/, ''))}
           />
         ) : (
           <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">

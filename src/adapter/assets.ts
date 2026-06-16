@@ -5,8 +5,26 @@ import { CreatureLook } from '~/domain/creature';
 import { loadCreatureDb } from '~/adapter/creatures';
 import { decodeDatResponse } from '~/adapter/datDecoder';
 
-export const DEFAULT_DATA_DIR = 'D:/workspace/projects/nosbor/data/860';
 export const DEFAULT_VERSION = 860;
+
+let cachedDataDir = '';
+
+export async function initDataDir(version = DEFAULT_VERSION): Promise<string> {
+  cachedDataDir = await invoke<string>('default_data_dir', { version });
+  return cachedDataDir;
+}
+
+export function defaultDataDir(): string {
+  return cachedDataDir;
+}
+
+export async function openDataDir(path: string): Promise<void> {
+  await invoke('open_data_dir', { path });
+}
+
+export async function openUrl(url: string): Promise<void> {
+  await invoke('open_url', { url });
+}
 
 const SPAWN_MARKER_SERVER_ID = 1507;
 const WAYPOINT_MARKER_SERVER_ID = 1397;
@@ -100,17 +118,17 @@ interface RustSprHeader {
   sprite_count: number;
 }
 
-export async function loadAssets(dir = DEFAULT_DATA_DIR, version = DEFAULT_VERSION): Promise<LoadedAssets> {
-  const otfi = await readOtfi(dir);
+export async function loadAssets(dataDir: string, clientDir: string, version = DEFAULT_VERSION): Promise<LoadedAssets> {
+  const otfi = await readOtfi(clientDir);
   const extended = otfi.extended ?? false;
   const transparency = otfi.transparency ?? false;
-  const datPath = `${dir}/${otfi.metadataFile ?? 'Tibia.dat'}`;
-  const sprPath = `${dir}/${otfi.spritesFile ?? 'Tibia.spr'}`;
+  const datPath = `${clientDir}/${otfi.metadataFile ?? 'Tibia.dat'}`;
+  const sprPath = `${clientDir}/${otfi.spritesFile ?? 'Tibia.spr'}`;
 
-  const otbItemCount = await invoke<number>('load_otb', { path: `${dir}/items.otb` });
-  await invoke<number>('load_materials', { dataDir: dir }).catch((err) => console.error('Failed to load materials', err));
-  const itemNames = await loadItemNames(dir);
-  const creatures = await loadCreatureDb(dir);
+  const otbItemCount = await invoke<number>('load_otb', { path: `${dataDir}/items.otb` });
+  await invoke<number>('load_materials', { dataDir }).catch((err) => console.error('Failed to load materials', err));
+  const itemNames = await loadItemNames(dataDir);
+  const creatures = await loadCreatureDb(dataDir);
   const [spawnMarkerClientId, waypointMarkerClientId] = await mapClientIds([SPAWN_MARKER_SERVER_ID, WAYPOINT_MARKER_SERVER_ID]);
 
   const datResponse = await invoke<Uint8Array | ArrayBuffer>('parse_dat_file_bin', { path: datPath, version });

@@ -30,6 +30,62 @@ pub fn write_file_text(path: String, contents: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn default_data_dir(version: u32) -> String {
+	let v = version.to_string();
+	let exe = std::env::current_exe().ok();
+	let exe_dir = exe.as_deref().and_then(|e| e.parent());
+	let mut dir = exe_dir;
+	let mut depth = 0;
+	while let Some(base) = dir {
+		let candidate = base.join("data").join(&v);
+		if candidate.is_dir() {
+			return candidate.to_string_lossy().into_owned();
+		}
+		if depth >= 6 {
+			break;
+		}
+		depth += 1;
+		dir = base.parent();
+	}
+	exe_dir
+		.map(|b| b.join("data").join(&v).to_string_lossy().into_owned())
+		.unwrap_or_else(|| format!("data{}{}", std::path::MAIN_SEPARATOR, v))
+}
+
+#[tauri::command]
+pub fn open_data_dir(path: String) -> Result<(), String> {
+	let normalized = if cfg!(target_os = "windows") {
+		path.replace('/', "\\")
+	} else {
+		path.clone()
+	};
+	let p = std::path::Path::new(&normalized);
+	fs::create_dir_all(p).map_err(|e| format!("Failed to create {}: {}", normalized, e))?;
+	#[cfg(target_os = "windows")]
+	let program = "explorer";
+	#[cfg(target_os = "macos")]
+	let program = "open";
+	#[cfg(all(unix, not(target_os = "macos")))]
+	let program = "xdg-open";
+	std::process::Command::new(program)
+		.arg(p)
+		.spawn()
+		.map_err(|e| format!("Failed to open {}: {}", normalized, e))?;
+	Ok(())
+}
+
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+	#[cfg(target_os = "windows")]
+	let result = std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn();
+	#[cfg(target_os = "macos")]
+	let result = std::process::Command::new("open").arg(&url).spawn();
+	#[cfg(all(unix, not(target_os = "macos")))]
+	let result = std::process::Command::new("xdg-open").arg(&url).spawn();
+	result.map(|_| ()).map_err(|e| format!("Failed to open {}: {}", url, e))
+}
+
+#[tauri::command]
 pub fn read_file_header(path: String, bytes: usize) -> Result<FileBytes, String> {
 	use std::io::Read;
 	let mut file = fs::File::open(&path).map_err(|e| format!("Failed to open file {}: {}", path, e))?;

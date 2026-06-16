@@ -1,6 +1,6 @@
 import { DEFAULT_MAX_STACK } from '~/domain/dock';
+import { DEFAULT_VERSION } from '~/adapter/assets';
 import { getSetting, setSetting } from '~/adapter/settings';
-import { DEFAULT_VERSION, DEFAULT_DATA_DIR } from '~/adapter/assets';
 import { DEFAULT_COPY_POSITION_FORMAT } from '~/usecase/positionFormat';
 
 const KEY = 'clientConfig';
@@ -16,7 +16,7 @@ export interface ClientConfig {
 export const defaultClientConfig: ClientConfig = {
   checkSignatures: true,
   defaultVersion: DEFAULT_VERSION,
-  paths: { [DEFAULT_VERSION]: DEFAULT_DATA_DIR }
+  paths: {}
 };
 
 export async function loadClientConfig(): Promise<ClientConfig> {
@@ -24,7 +24,7 @@ export async function loadClientConfig(): Promise<ClientConfig> {
   return {
     ...defaultClientConfig,
     ...stored,
-    paths: { ...defaultClientConfig.paths, ...(stored.paths ?? {}) }
+    paths: { ...(stored.paths ?? {}) }
   };
 }
 
