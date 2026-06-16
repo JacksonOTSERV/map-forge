@@ -364,7 +364,7 @@ const PalettePanel = ({
                   data-brush-key={tile.brush.key}
                   onClick={() => handleSelect(tile)}
                   className={cn(
-                    'flex aspect-square items-center justify-center rounded border bg-muted/40 p-0.5 transition-colors hover:bg-item-hover',
+                    'flex aspect-square items-center justify-center overflow-hidden rounded border bg-muted/40 transition-colors hover:bg-item-hover',
                     selectedKey === tile.brush.key ? 'border-primary bg-primary/15' : 'border-border/50'
                   )}
                 >
