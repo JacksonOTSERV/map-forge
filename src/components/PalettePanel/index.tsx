@@ -197,13 +197,26 @@ const PalettePanel = ({
 
       const resolved: Tile[] = brushes.map((brush) => {
         const thing = resolveBrushThing(brush, items, outfits, serverToClient.current);
-        return { brush, layout: thing ? brushSpriteLayout(thing, brush.kind === 'creature') : null };
+        const colors =
+          brush.kind === 'creature' && brush.creature
+            ? {
+                head: brush.creature.head ?? 0,
+                body: brush.creature.body ?? 0,
+                legs: brush.creature.legs ?? 0,
+                feet: brush.creature.feet ?? 0
+              }
+            : undefined;
+        return { brush, layout: thing ? brushSpriteLayout(thing, brush.kind === 'creature', colors) : null };
       });
       setTiles(resolved);
 
       const spriteIds: number[] = [];
       for (const tile of resolved) {
-        if (tile.layout) for (const cell of tile.layout.cells) spriteIds.push(cell.spriteId);
+        if (!tile.layout) continue;
+        for (const cell of tile.layout.cells) {
+          spriteIds.push(cell.spriteId);
+          if (cell.maskSpriteId != null) spriteIds.push(cell.maskSpriteId);
+        }
       }
       await loadSprites(sprPath, spriteIds, transparency, spriteCache.current);
       if (!cancelled) setRenderVersion((v) => v + 1);

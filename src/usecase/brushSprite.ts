@@ -1,16 +1,20 @@
 import { PaletteBrush } from '~/domain/palette';
 import { ThingType, getSpriteIndex } from '~/domain/tibia';
+import { isColorized, OutfitColors } from '~/domain/outfit';
 
 export interface SpriteCell {
   dx: number;
   dy: number;
   spriteId: number;
+  maskSpriteId?: number;
 }
 
 export interface BrushSpriteLayout {
   cols: number;
   rows: number;
+  exactSize: number;
   cells: SpriteCell[];
+  colors?: OutfitColors;
 }
 
 export function resolveBrushThing(
@@ -29,10 +33,11 @@ export function resolveBrushThing(
   return items.get(clientId) ?? null;
 }
 
-export function brushSpriteLayout(thing: ThingType, isCreature: boolean): BrushSpriteLayout {
+export function brushSpriteLayout(thing: ThingType, isCreature: boolean, colors?: OutfitColors): BrushSpriteLayout {
   const cols = Math.max(1, thing.width);
   const rows = Math.max(1, thing.height);
   const patternX = isCreature ? Math.min(2, Math.max(0, thing.patternX - 1)) : 0;
+  const hasMask = isCreature && thing.layers >= 2 && colors != null && isColorized(colors);
   const cells: SpriteCell[] = [];
 
   for (let h = 0; h < rows; h++) {
@@ -40,9 +45,16 @@ export function brushSpriteLayout(thing: ThingType, isCreature: boolean): BrushS
       const index = getSpriteIndex(thing, w, h, 0, patternX, 0, 0, 0);
       const spriteId = thing.spriteIndex[index];
       if (spriteId == null || spriteId === 0) continue;
-      cells.push({ dx: (cols - 1 - w) * 32, dy: (rows - 1 - h) * 32, spriteId });
+      const cell: SpriteCell = { dx: (cols - 1 - w) * 32, dy: (rows - 1 - h) * 32, spriteId };
+      if (hasMask) {
+        const maskIndex = getSpriteIndex(thing, w, h, 1, patternX, 0, 0, 0);
+        const maskId = thing.spriteIndex[maskIndex];
+        if (maskId != null && maskId !== 0) cell.maskSpriteId = maskId;
+      }
+      cells.push(cell);
     }
   }
 
-  return { cols, rows, cells };
+  const exactSize = thing.exactSize > 0 ? thing.exactSize : Math.max(cols, rows) * 32;
+  return { cols, rows, exactSize, cells, colors: hasMask ? colors : undefined };
 }

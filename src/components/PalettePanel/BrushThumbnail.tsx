@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { LoadedSprite } from '~/domain/sprite';
+import { colorizeOutfit } from '~/domain/outfit';
 import { BrushSpriteLayout } from '~/usecase/brushSprite';
 
 interface BrushThumbnailProps {
@@ -18,7 +19,15 @@ const BrushThumbnail = ({ layout, cache, version, size }: BrushThumbnailProps) =
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
-    ctx.clearRect(0, 0, size, size);
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || size;
+    const cssH = canvas.clientHeight || size;
+    const backingW = Math.max(1, Math.round(cssW * dpr));
+    const backingH = Math.max(1, Math.round(cssH * dpr));
+    if (canvas.width !== backingW) canvas.width = backingW;
+    if (canvas.height !== backingH) canvas.height = backingH;
+
+    ctx.clearRect(0, 0, backingW, backingH);
     if (!layout || layout.cells.length === 0) return;
 
     const offW = layout.cols * 32;
@@ -33,19 +42,45 @@ const BrushThumbnail = ({ layout, cache, version, size }: BrushThumbnailProps) =
     for (const cell of layout.cells) {
       const sprite = cache.get(cell.spriteId);
       if (!sprite || sprite.empty) continue;
-      octx.putImageData(new ImageData(new Uint8ClampedArray(sprite.rgba), 32, 32), cell.dx, cell.dy);
+      let rgba = sprite.rgba;
+      if (cell.maskSpriteId != null && layout.colors) {
+        const mask = cache.get(cell.maskSpriteId);
+        if (mask && !mask.empty) rgba = colorizeOutfit(sprite.rgba, mask.rgba, layout.colors);
+      }
+      octx.putImageData(new ImageData(new Uint8ClampedArray(rgba), 32, 32), cell.dx, cell.dy);
       drew = true;
     }
     if (!drew) return;
 
-    const scale = Math.min(size / offW, size / offH);
-    const dw = offW * scale;
-    const dh = offH * scale;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(off, (size - dw) / 2, (size - dh) / 2, dw, dh);
+    let sx = 0;
+    let sy = 0;
+    let sw = offW;
+    let sh = offH;
+    if (layout.exactSize > 0 && layout.exactSize < Math.max(offW, offH)) {
+      sw = Math.min(layout.exactSize, offW);
+      sh = Math.min(layout.exactSize, offH);
+      sx = offW - sw;
+      sy = offH - sh;
+    }
+
+    const k = Math.max(4, Math.ceil(backingW / sw));
+    const pre = document.createElement('canvas');
+    pre.width = sw * k;
+    pre.height = sh * k;
+    const pctx = pre.getContext('2d');
+    if (!pctx) return;
+    pctx.imageSmoothingEnabled = false;
+    pctx.drawImage(off, sx, sy, sw, sh, 0, 0, pre.width, pre.height);
+
+    const fit = Math.min(backingW / pre.width, backingH / pre.height);
+    const dw = pre.width * fit;
+    const dh = pre.height * fit;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(pre, (backingW - dw) / 2, (backingH - dh) / 2, dw, dh);
   }, [layout, cache, version, size]);
 
-  return <canvas ref={ref} width={size} height={size} className="h-full w-full" style={{ imageRendering: 'pixelated' }} />;
+  return <canvas ref={ref} className="h-full w-full" />;
 };
 
 export default BrushThumbnail;
