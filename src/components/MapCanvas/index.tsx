@@ -1,9 +1,11 @@
 import React from 'react';
 import { IconDoorExit } from '@tabler/icons-react';
 
+import { stepZoom } from '~/usecase/zoom';
 import { GLRenderer } from '~/usecase/glRenderer';
 import { useTool } from '~/usecase/context/ToolContext';
 import { isZoneTool, isHouseTool } from '~/domain/tools';
+import { MAP_MIN_LAYER, MAP_MAX_LAYER } from '~/usecase/floors';
 import { DRAW_CURSOR, WAYPOINT_CURSOR } from '~/usecase/cursors';
 import { useAssetsBundle } from '~/usecase/context/AssetsContext';
 import { useMapScene } from '~/usecase/hooks/MapCanvas/useMapScene';
@@ -125,6 +127,50 @@ const MapCanvas = (props: MapCanvasProps) => {
     return () => {
       ref.current = null;
     };
+  }, []);
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+
+      const i = inputs.current;
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.code === 'Equal') {
+          e.preventDefault();
+          const nz = stepZoom(camera.zoomRef.current, 1);
+          if (nz !== camera.zoomRef.current) i.onZoomChange(nz);
+        } else if (e.code === 'Minus') {
+          e.preventDefault();
+          const nz = stepZoom(camera.zoomRef.current, -1);
+          if (nz !== camera.zoomRef.current) i.onZoomChange(nz);
+        } else if (e.code === 'Digit0' || e.code === 'Numpad0') {
+          e.preventDefault();
+          if (camera.zoomRef.current !== 1) i.onZoomChange(1);
+        }
+        return;
+      }
+
+      if (e.key === 'PageUp' || e.code === 'NumpadAdd') {
+        e.preventDefault();
+        i.onFloorChange(Math.max(MAP_MIN_LAYER, i.floorZ - 1));
+      } else if (e.key === 'PageDown' || e.code === 'NumpadSubtract') {
+        e.preventDefault();
+        i.onFloorChange(Math.min(MAP_MAX_LAYER, i.floorZ + 1));
+      } else if (e.code === 'NumpadMultiply') {
+        e.preventDefault();
+        const nz = stepZoom(camera.zoomRef.current, 1);
+        if (nz !== camera.zoomRef.current) i.onZoomChange(nz);
+      } else if (e.code === 'NumpadDivide') {
+        e.preventDefault();
+        const nz = stepZoom(camera.zoomRef.current, -1);
+        if (nz !== camera.zoomRef.current) i.onZoomChange(nz);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   React.useEffect(() => {
