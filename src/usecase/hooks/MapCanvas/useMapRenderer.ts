@@ -676,6 +676,35 @@ export function useMapRenderer(deps: RendererDeps) {
       if (ghost) renderer.drawGhost(ghost, camX, camY, scale, 0.6);
     }
 
+    const placingBrush = inputs.current.activeBrush;
+    if (
+      inputs.current.activeTool === 'brush' &&
+      placingBrush?.kind === 'creature' &&
+      placingBrush.lookType != null &&
+      !scene.ctrlDown.current &&
+      !selection.box.current &&
+      hover &&
+      hover.z === floorZ
+    ) {
+      const ghost = buildCreatureGhost(
+        placingBrush.lookType,
+        hover.x,
+        hover.y,
+        floorZ,
+        inputs.current.outfits,
+        atlas,
+        frameTick.current,
+        missing,
+        {
+          head: placingBrush.head ?? 0,
+          body: placingBrush.body ?? 0,
+          legs: placingBrush.legs ?? 0,
+          feet: placingBrush.feet ?? 0
+        }
+      );
+      if (ghost) renderer.drawGhost(ghost, camX, camY, scale, 0.6);
+    }
+
     const previewTiles = scene.boxGhostTiles.current;
     if (previewTiles && previewTiles.length > 0 && selection.box.current) {
       const ghost = buildPreviewGhost(previewTiles, missing);
