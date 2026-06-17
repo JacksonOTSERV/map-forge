@@ -30,6 +30,7 @@ export interface MapScene {
   boxGhostRef: React.RefObject<HTMLDivElement>;
   boxGhostTiles: React.MutableRefObject<PreviewTile[] | null>;
   hoveredTile: React.MutableRefObject<Position | null>;
+  mouseScreen: React.MutableRefObject<{ x: number; y: number } | null>;
   lastHoverKey: React.MutableRefObject<string | null>;
   painting: React.MutableRefObject<boolean>;
   erasing: React.MutableRefObject<boolean>;
@@ -56,6 +57,7 @@ export function useMapScene(): MapScene {
     boxGhostRef: React.useRef<HTMLDivElement>(null),
     boxGhostTiles: React.useRef<PreviewTile[] | null>(null),
     hoveredTile: React.useRef<Position | null>(null),
+    mouseScreen: React.useRef<{ x: number; y: number } | null>(null),
     lastHoverKey: React.useRef<string | null>(null),
     painting: React.useRef(false),
     erasing: React.useRef(false),

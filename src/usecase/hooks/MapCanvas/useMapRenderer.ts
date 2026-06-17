@@ -4,11 +4,12 @@ import { isZoneTool } from '~/domain/tools';
 import { visibleZoneBits } from '~/domain/zones';
 import { visibleFloorRange } from '~/usecase/floors';
 import { slotUV, GLRenderer } from '~/usecase/glRenderer';
-import { packChunkKey, fetchMapChunks } from '~/adapter/map';
 import { MapCanvasInputs } from '~/components/MapCanvas/types';
 import { SpawnArea, CreaturePlacement } from '~/domain/creature';
 import { Position, ChunkTiles, PreviewTile } from '~/domain/map';
 import { isCountStack, getSpriteIndex, stackSpriteIndex } from '~/domain/tibia';
+import { packChunkKey, fetchMapChunks, fetchChunkTooltips } from '~/adapter/map';
+import { TooltipBox, layoutTooltip, drawTooltipBox, buildTooltipFields, resolveTooltipTheme } from '~/usecase/tooltipOverlay';
 import {
   TILE,
   CHUNK,
@@ -25,6 +26,7 @@ import { MapCamera } from './useMapCamera';
 import { SpriteAtlas } from './useSpriteAtlas';
 import { ChunkTilesCache } from './useChunkTiles';
 import { ChunkMeshCache } from './useChunkMeshes';
+import { ChunkTooltipsCache } from './useChunkTooltips';
 import {
   spawnFactor,
   spawnTileKey,
@@ -46,22 +48,27 @@ export interface StatRefs {
 
 export interface RendererDeps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
+  overlayRef: React.RefObject<HTMLCanvasElement>;
   gl: React.MutableRefObject<GLRenderer | null>;
   camera: MapCamera;
   inputs: React.MutableRefObject<MapCanvasInputs>;
   atlas: SpriteAtlas;
   tiles: ChunkTilesCache;
+  tooltips: ChunkTooltipsCache;
   meshes: ChunkMeshCache;
   selection: Selection;
   scene: MapScene;
   stats: StatRefs;
 }
 
+const TOOLTIP_MIN_ZOOM = 0.5;
+
 export function useMapRenderer(deps: RendererDeps) {
-  const { canvasRef, gl, camera, inputs, atlas, tiles, meshes, selection, scene, stats } = deps;
+  const { canvasRef, overlayRef, gl, camera, inputs, atlas, tiles, tooltips, meshes, selection, scene, stats } = deps;
   const { frameTick, lastChunksDrawn } = scene;
   const prevPreviewKeys = React.useRef<string[]>([]);
   const prevSprPath = React.useRef('');
+  const overlayHasContent = React.useRef(false);
 
   function flushTileRequests() {
     if (inputs.current.paused) return;
@@ -91,6 +98,117 @@ export function useMapRenderer(deps: RendererDeps) {
         })
         .catch((err) => console.error('Failed to fetch chunks', err));
     }
+  }
+
+  function flushTooltipRequests() {
+    if (inputs.current.paused) return;
+    if (tooltips.pending.current.size === 0) return;
+    const byZ = new Map<number, number[]>();
+    for (const k of tooltips.pending.current) {
+      const [z, cx, cy] = k.split(',').map(Number);
+      let arr = byZ.get(z);
+      if (!arr) {
+        arr = [];
+        byZ.set(z, arr);
+      }
+      arr.push(packChunkKey(cx, cy));
+    }
+    tooltips.pending.current.clear();
+    for (const [z, keys] of byZ) {
+      fetchChunkTooltips(inputs.current.map.id, z, keys)
+        .then((res) => {
+          for (const packed of keys) {
+            const cx = packed >>> 16;
+            const cy = packed & 0xffff;
+            tooltips.store(`${z},${cx},${cy}`, res.get(`${cx},${cy}`) ?? [], frameTick.current);
+          }
+        })
+        .catch((err) => console.error('Failed to fetch tooltips', err));
+    }
+  }
+
+  function drawTooltips(camX: number, camY: number, zoom: number, vw: number, vh: number) {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const ctx = overlay.getContext('2d');
+    if (!ctx) return;
+
+    const enabled = inputs.current.showTooltips && zoom > TOOLTIP_MIN_ZOOM;
+    if (!enabled) {
+      if (overlayHasContent.current) {
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        overlayHasContent.current = false;
+      }
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const bw = Math.round(vw * dpr);
+    const bh = Math.round(vh * dpr);
+    if (overlay.width !== bw || overlay.height !== bh) {
+      overlay.width = bw;
+      overlay.height = bh;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, vw, vh);
+    overlayHasContent.current = true;
+
+    const z = inputs.current.floorZ;
+    const types = inputs.current.tooltipTypes;
+    const theme = resolveTooltipTheme();
+    const teleports = inputs.current.map.teleports;
+    const { minX, minY, maxX, maxY } = inputs.current.map.bounds;
+    const minCx = Math.floor(minX / CHUNK);
+    const minCy = Math.floor(minY / CHUNK);
+    const maxCx = Math.floor(maxX / CHUNK);
+    const maxCy = Math.floor(maxY / CHUNK);
+    const startCx = Math.max(minCx, Math.floor(camX / CHUNK_WORLD));
+    const endCx = Math.min(maxCx, Math.floor((camX + vw / zoom) / CHUNK_WORLD));
+    const startCy = Math.max(minCy, Math.floor(camY / CHUNK_WORLD));
+    const endCy = Math.min(maxCy, Math.floor((camY + vh / zoom) / CHUNK_WORLD));
+
+    const hover = scene.hoveredTile.current;
+    const mouse = scene.mouseScreen.current;
+    const boxes: { box: TooltipBox; tx: number; ty: number }[] = [];
+
+    for (let cy = startCy; cy <= endCy; cy++) {
+      for (let cx = startCx; cx <= endCx; cx++) {
+        const tt = tooltips.get(cx, cy, z, frameTick.current);
+        if (tt === undefined) {
+          tooltips.request(cx, cy, z);
+          continue;
+        }
+        if (tt === null || tt.length === 0) continue;
+        for (const t of tt) {
+          const sx = (t.x * TILE + TILE / 2 - camX) * zoom;
+          const sy = (t.y * TILE - camY) * zoom;
+          if (sx < -300 || sx > vw + 300 || sy < -300 || sy > vh + 300) continue;
+          const dest = teleports.get(`${t.x},${t.y},${z}`) ?? null;
+          const fields = buildTooltipFields(t, dest, types);
+          const box = layoutTooltip(ctx, sx - (TILE / 2) * zoom, sy, fields);
+          if (box) boxes.push({ box, tx: t.x, ty: t.y });
+        }
+      }
+    }
+
+    const inBox = (b: TooltipBox) =>
+      mouse != null && mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height;
+
+    let activeIndex = -1;
+    for (let i = boxes.length - 1; i >= 0; i--) {
+      if (inBox(boxes[i].box)) {
+        activeIndex = i;
+        break;
+      }
+    }
+    if (activeIndex < 0 && hover) {
+      activeIndex = boxes.findIndex((e) => e.tx === hover.x && e.ty === hover.y);
+    }
+
+    boxes.forEach((e, i) => {
+      if (i !== activeIndex) drawTooltipBox(ctx, e.box, theme);
+    });
+    if (activeIndex >= 0) drawTooltipBox(ctx, boxes[activeIndex].box, theme);
   }
 
   function spawnPreview(): { from: Position; fromRadius: number; area: SpawnArea } | null {
@@ -718,12 +836,15 @@ export function useMapRenderer(deps: RendererDeps) {
     updateSelectionBox(camX, camY, zoom);
     updateSpawnBox(camX, camY, zoom);
     updateHouseExits(camX, camY, zoom);
+    drawTooltips(camX, camY, zoom, vw, vh);
 
     flushTileRequests();
+    flushTooltipRequests();
     atlas.loadMissing(sprPath, missing, transparency);
 
     atlas.evict(frameTick.current);
     tiles.evict(frameTick.current);
+    tooltips.evict(frameTick.current);
     meshes.evict(frameTick.current);
   }
 

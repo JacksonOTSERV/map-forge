@@ -33,6 +33,18 @@ export interface ChunkTiles {
   counts: Uint8Array;
 }
 
+export interface TileTooltip {
+  x: number;
+  y: number;
+  actionId: number;
+  uniqueId: number;
+  doorId: number;
+  text: string;
+  desc: string;
+}
+
+export type ChunkTooltips = TileTooltip[];
+
 export interface PreviewTile {
   x: number;
   y: number;

@@ -2,6 +2,7 @@ import React from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Save, FilePlus, FolderOpen } from 'lucide-react';
 
+import { TOOLTIP_TYPE_LABELS } from '~/domain/tooltips';
 import { PaletteCategoryId, PALETTE_CATEGORIES } from '~/domain/palette';
 import { useEditorSettings } from '~/usecase/context/EditorSettingsContext';
 import {
@@ -69,7 +70,17 @@ const AppMenu = ({
   onSelectPaletteCategory,
   onAbout
 }: AppMenuProps) => {
-  const { zoneVisibility, toggleZone, setAllZones, showRenderStats, toggleRenderStats } = useEditorSettings();
+  const {
+    zoneVisibility,
+    toggleZone,
+    setAllZones,
+    showRenderStats,
+    toggleRenderStats,
+    showTooltips,
+    toggleTooltips,
+    tooltipTypes,
+    toggleTooltipType
+  } = useEditorSettings();
   const anyZoneVisible = zoneVisibility.pz || zoneVisibility.nopvp || zoneVisibility.nologout || zoneVisibility.pvp;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
@@ -190,6 +201,21 @@ const AppMenu = ({
           <MenubarItem onSelect={(e) => e.preventDefault()} onClick={() => setAllZones(!anyZoneVisible)}>
             {anyZoneVisible ? 'Hide all zones' : 'Show all zones'}
           </MenubarItem>
+          <MenubarSeparator />
+          <MenubarCheckboxItem checked={showTooltips} onCheckedChange={toggleTooltips} onSelect={(e) => e.preventDefault()}>
+            Show tooltips
+          </MenubarCheckboxItem>
+          {TOOLTIP_TYPE_LABELS.map((t) => (
+            <MenubarCheckboxItem
+              key={t.key}
+              disabled={!showTooltips}
+              checked={tooltipTypes[t.key]}
+              onSelect={(e) => e.preventDefault()}
+              onCheckedChange={() => toggleTooltipType(t.key)}
+            >
+              {t.label}
+            </MenubarCheckboxItem>
+          ))}
         </MenubarContent>
       </MenubarMenu>
 

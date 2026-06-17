@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { ZoneVisibility } from '~/domain/zones';
+import { TooltipTypes, TooltipTypeKey } from '~/domain/tooltips';
 
 export interface EditorSettingsValue {
   automagic: boolean;
@@ -8,6 +9,8 @@ export interface EditorSettingsValue {
   showCreatures: boolean;
   showWaypoints: boolean;
   showHouses: boolean;
+  showTooltips: boolean;
+  tooltipTypes: TooltipTypes;
   showRenderStats: boolean;
   spawnSize: number;
   spawnTime: number;
@@ -22,6 +25,8 @@ export interface EditorSettingsValue {
   toggleCreatures: () => void;
   toggleWaypoints: () => void;
   toggleHouses: () => void;
+  toggleTooltips: () => void;
+  toggleTooltipType: (key: TooltipTypeKey) => void;
   toggleRenderStats: () => void;
   toggleZone: (key: keyof ZoneVisibility) => void;
   setAllZones: (visible: boolean) => void;

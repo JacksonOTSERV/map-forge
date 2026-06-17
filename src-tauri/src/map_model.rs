@@ -371,6 +371,88 @@ pub(crate) fn serialize_chunks(m: &MapModel, z: u8, keys: &[u32]) -> Vec<u8> {
 	out
 }
 
+fn push_str_u16(out: &mut Vec<u8>, s: &str) {
+	let b = s.as_bytes();
+	push_u16(out, b.len().min(u16::MAX as usize) as u16);
+	out.extend_from_slice(&b[..b.len().min(u16::MAX as usize)]);
+}
+
+pub(crate) fn serialize_chunk_tooltips(m: &MapModel, z: u8, keys: &[u32]) -> Vec<u8> {
+	let mut out = Vec::new();
+	push_u32(&mut out, 0);
+	let mut chunk_count = 0u32;
+	for &k in keys {
+		let mut positions: Vec<(u16, u16)> = Vec::new();
+		let edits_chunk = m.edits.get(&z).and_then(|c| c.get(&k));
+		if let Some(&(start, end)) = m.floors.get(&z).and_then(|f| f.get(&k)) {
+			for t in start as usize..end as usize {
+				let x = m.tile_x[t];
+				let y = m.tile_y[t];
+				let pos = (x as u32) << 16 | y as u32;
+				if edits_chunk.is_some_and(|c| c.contains_key(&pos)) {
+					continue;
+				}
+				positions.push((x, y));
+			}
+		}
+		if let Some(c) = edits_chunk {
+			for &pos in c.keys() {
+				positions.push(((pos >> 16) as u16, (pos & 0xFFFF) as u16));
+			}
+		}
+		positions.sort_unstable_by_key(|(x, y)| (*y, *x));
+		positions.dedup();
+
+		let mut tile_bytes = Vec::new();
+		let mut tile_count = 0u32;
+		for (x, y) in positions {
+			let door = door_id_at(m, z, x, y);
+			let stack_len = stack_at(m, z, x, y).len();
+			let mut action = 0u16;
+			let mut unique = 0u16;
+			let mut text = String::new();
+			let mut desc = String::new();
+			for i in 0..stack_len {
+				if let Some(a) = m.item_attrs.get(&crate::otbm::attrs_key(z, x, y, i as u8)) {
+					if action == 0 {
+						action = a.action_id;
+					}
+					if unique == 0 {
+						unique = a.unique_id;
+					}
+					if text.is_empty() {
+						text = a.text.clone();
+					}
+					if desc.is_empty() {
+						desc = a.desc.clone();
+					}
+				}
+			}
+			if action == 0 && unique == 0 && door == 0 && text.is_empty() && desc.is_empty() {
+				continue;
+			}
+			push_u16(&mut tile_bytes, x);
+			push_u16(&mut tile_bytes, y);
+			push_u16(&mut tile_bytes, action);
+			push_u16(&mut tile_bytes, unique);
+			push_u16(&mut tile_bytes, door as u16);
+			push_str_u16(&mut tile_bytes, &text);
+			push_str_u16(&mut tile_bytes, &desc);
+			tile_count += 1;
+		}
+		if tile_count == 0 {
+			continue;
+		}
+		push_u16(&mut out, (k >> 16) as u16);
+		push_u16(&mut out, (k & 0xFFFF) as u16);
+		push_u32(&mut out, tile_count);
+		out.extend_from_slice(&tile_bytes);
+		chunk_count += 1;
+	}
+	out[0..4].copy_from_slice(&chunk_count.to_le_bytes());
+	out
+}
+
 pub(crate) fn base_tile_items(m: &MapModel, z: u8, chunk_key: u32, x: u16, y: u16) -> Vec<(u16, u16)> {
 	if let Some(&(start, end)) = m.floors.get(&z).and_then(|f| f.get(&chunk_key)) {
 		for t in start as usize..end as usize {
@@ -1087,6 +1169,22 @@ pub fn get_map_chunks(
 	let model = guard.maps.get_mut(&map_id).ok_or("map not loaded - call open_otbm first")?;
 	model.ensure_chunks(z, &keys, otb)?;
 	Ok(Response::new(serialize_chunks(model, z, &keys)))
+}
+
+#[tauri::command]
+pub fn get_chunk_tooltips(
+	map_id: u32,
+	z: u8,
+	keys: Vec<u32>,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+) -> Result<Response, String> {
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let model = guard.maps.get_mut(&map_id).ok_or("map not loaded - call open_otbm first")?;
+	model.ensure_chunks(z, &keys, otb)?;
+	Ok(Response::new(serialize_chunk_tooltips(model, z, &keys)))
 }
 
 #[tauri::command]

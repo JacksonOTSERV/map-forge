@@ -16,6 +16,7 @@ import { useChunkMeshes } from '~/usecase/hooks/MapCanvas/useChunkMeshes';
 import { useSpriteAtlas } from '~/usecase/hooks/MapCanvas/useSpriteAtlas';
 import { useMapRenderer } from '~/usecase/hooks/MapCanvas/useMapRenderer';
 import { useEditorSettings } from '~/usecase/context/EditorSettingsContext';
+import { useChunkTooltips } from '~/usecase/hooks/MapCanvas/useChunkTooltips';
 import { useMapInteraction } from '~/usecase/hooks/MapCanvas/useMapInteraction';
 
 import RenderStats from './RenderStats';
@@ -46,6 +47,7 @@ const MapCanvas = (props: MapCanvasProps) => {
   const { activeBrush, activeTool } = tool;
 
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const overlayRef = React.useRef<HTMLCanvasElement>(null);
   const fpsRef = React.useRef<HTMLSpanElement>(null);
   const stallRef = React.useRef<HTMLSpanElement>(null);
   const maxRef = React.useRef<HTMLSpanElement>(null);
@@ -69,6 +71,8 @@ const MapCanvas = (props: MapCanvasProps) => {
     showCreatures: settings.showCreatures,
     showWaypoints: settings.showWaypoints,
     showHouses: settings.showHouses,
+    showTooltips: settings.showTooltips,
+    tooltipTypes: settings.tooltipTypes,
     automagic: settings.automagic,
     zoneVisibility: settings.zoneVisibility,
     spawnTime: settings.spawnTime,
@@ -100,16 +104,19 @@ const MapCanvas = (props: MapCanvasProps) => {
   const scene = useMapScene();
   const atlas = useSpriteAtlas(gl);
   const tiles = useChunkTiles();
+  const tooltips = useChunkTooltips();
   const meshes = useChunkMeshes(gl);
   const selection = useSelection(meshes);
 
   useMapRenderer({
     canvasRef,
+    overlayRef,
     gl,
     camera,
     inputs,
     atlas,
     tiles,
+    tooltips,
     meshes,
     selection,
     scene,
@@ -193,6 +200,7 @@ const MapCanvas = (props: MapCanvasProps) => {
   React.useEffect(() => {
     meshes.clear();
     tiles.clear();
+    tooltips.clear();
   }, [map]);
 
   React.useEffect(() => {
@@ -244,6 +252,7 @@ const MapCanvas = (props: MapCanvasProps) => {
         style={{ cursor: canvasCursor, display: 'block' }}
         onContextMenu={interaction.handlers.onContextMenu}
       />
+      <canvas aria-hidden ref={overlayRef} className="pointer-events-none absolute left-0 top-0 h-full w-full" />
       <img
         alt=""
         aria-hidden

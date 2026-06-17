@@ -8,6 +8,7 @@ import {
   IconLogout,
   IconDoorExit,
   IconSwordOff,
+  IconMessage2,
   IconViewfinder,
   IconShieldHalf,
   IconScanLetterA
@@ -52,11 +53,13 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
     showCreatures,
     showWaypoints,
     showHouses,
+    showTooltips,
     toggleSpawns,
     toggleAutomagic,
     toggleCreatures,
     toggleWaypoints,
-    toggleHouses
+    toggleHouses,
+    toggleTooltips
   } = useEditorSettings();
 
   return (
@@ -135,6 +138,17 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
             )}
           >
             <IconHome className="h-[18px] w-[18px]" />
+          </button>
+        </Hint>
+        <Hint side="right" label="Show tooltips">
+          <button
+            onClick={toggleTooltips}
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+              showTooltips ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+            )}
+          >
+            <IconMessage2 className="h-[18px] w-[18px]" />
           </button>
         </Hint>
         <Hint side="right" label="Automatic borders - auto-border, walls, tables, carpets, mountains">

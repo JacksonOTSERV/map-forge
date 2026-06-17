@@ -2,7 +2,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
 import { Waypoint } from '~/domain/waypoint';
-import { Town, MapMeta, Position, ChunkTiles, PreviewTile, OtbmProgress, MapProperties, MapStatistics } from '~/domain/map';
+import {
+  Town,
+  MapMeta,
+  Position,
+  ChunkTiles,
+  PreviewTile,
+  OtbmProgress,
+  MapProperties,
+  MapStatistics,
+  ChunkTooltips
+} from '~/domain/map';
 
 export const packChunkKey = (cx: number, cy: number): number => (cx << 16) | cy;
 
@@ -329,6 +339,49 @@ export async function fetchMapChunks(mapId: number, z: number, keys: number[]): 
       serverIds: Uint16Array.from(serverList),
       counts: Uint8Array.from(countList)
     });
+  }
+  return result;
+}
+
+export async function fetchChunkTooltips(mapId: number, z: number, keys: number[]): Promise<Map<string, ChunkTooltips>> {
+  const result = new Map<string, ChunkTooltips>();
+  if (keys.length === 0) return result;
+
+  const response = await invoke<Uint8Array | ArrayBuffer>('get_chunk_tooltips', { mapId, z, keys });
+  const u8 = toUint8(response);
+  const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const decoder = new TextDecoder();
+
+  let o = 0;
+  const chunkCount = view.getUint32(o, true);
+  o += 4;
+  for (let c = 0; c < chunkCount; c++) {
+    const cx = view.getUint16(o, true);
+    o += 2;
+    const cy = view.getUint16(o, true);
+    o += 2;
+    const tileCount = view.getUint32(o, true);
+    o += 4;
+
+    const tiles: ChunkTooltips = [];
+    for (let t = 0; t < tileCount; t++) {
+      const x = view.getUint16(o, true);
+      const y = view.getUint16(o + 2, true);
+      const actionId = view.getUint16(o + 4, true);
+      const uniqueId = view.getUint16(o + 6, true);
+      const doorId = view.getUint16(o + 8, true);
+      o += 10;
+      const textLen = view.getUint16(o, true);
+      o += 2;
+      const text = textLen ? decoder.decode(u8.subarray(o, o + textLen)) : '';
+      o += textLen;
+      const descLen = view.getUint16(o, true);
+      o += 2;
+      const desc = descLen ? decoder.decode(u8.subarray(o, o + descLen)) : '';
+      o += descLen;
+      tiles.push({ x, y, actionId, uniqueId, doorId, text, desc });
+    }
+    result.set(`${cx},${cy}`, tiles);
   }
   return result;
 }

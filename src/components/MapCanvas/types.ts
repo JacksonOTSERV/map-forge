@@ -5,6 +5,7 @@ import { ThingType } from '~/domain/tibia';
 import { MapHouses } from '~/domain/house';
 import { MapSpawns } from '~/domain/creature';
 import { ZoneVisibility } from '~/domain/zones';
+import { TooltipTypes } from '~/domain/tooltips';
 import { MapWaypoints } from '~/domain/waypoint';
 import { MapView, MapMeta, Position } from '~/domain/map';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
@@ -130,6 +131,8 @@ export interface MapCanvasContextInputs {
   showCreatures: boolean;
   showWaypoints: boolean;
   showHouses: boolean;
+  showTooltips: boolean;
+  tooltipTypes: TooltipTypes;
   automagic: boolean;
   zoneVisibility: ZoneVisibility;
   spawnTime: number;

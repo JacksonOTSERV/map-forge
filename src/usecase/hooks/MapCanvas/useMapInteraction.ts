@@ -999,6 +999,11 @@ export function useMapInteraction(deps: InteractionDeps) {
   function onMouseMove(e: React.MouseEvent) {
     if (modalOpen.current) return;
     scene.ctrlDown.current = e.ctrlKey;
+    const canvasEl = canvasRef.current;
+    if (canvasEl) {
+      const r = canvasEl.getBoundingClientRect();
+      scene.mouseScreen.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
     if (creatureStroke.current) {
       applyCreatureAt(tileAt(e));
     } else if (scene.painting.current) {
@@ -1089,6 +1094,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     scene.lastPaintKey.current = null;
     scene.lastHoverKey.current = null;
     scene.hoveredTile.current = null;
+    scene.mouseScreen.current = null;
     inputs.current.onHover(null);
   }
 
