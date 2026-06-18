@@ -39,6 +39,7 @@ pub struct ItemAttrs {
 	pub desc: String,
 	pub charges: u16,
 	pub tier: u8,
+	pub depot_id: u16,
 }
 
 impl ItemAttrs {
@@ -49,6 +50,7 @@ impl ItemAttrs {
 			&& self.desc.is_empty()
 			&& self.charges == 0
 			&& self.tier == 0
+			&& self.depot_id == 0
 	}
 }
 
@@ -380,7 +382,13 @@ impl<'a, V: OtbmVisitor> Parser<'a, V> {
 					}
 					None => false,
 				},
-				OTBM_ATTR_DEPOT_ID => self.r.skip_data(2),
+				OTBM_ATTR_DEPOT_ID => match self.r.data_u16() {
+					Some(v) => {
+						ia.depot_id = v;
+						true
+					}
+					None => false,
+				},
 				OTBM_ATTR_TIER => match self.r.data_u8() {
 					Some(v) => {
 						ia.tier = v;
