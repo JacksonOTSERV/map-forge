@@ -1,9 +1,16 @@
-const TILE = 32;
-const ATLAS_DIM = 4096;
-const ATLAS_COLS = ATLAS_DIM / TILE;
-export const ATLAS_SLOTS = ATLAS_COLS * ATLAS_COLS;
+import { TILE as DEFAULT_TILE } from '~/components/MapCanvas/constants';
 
-const VERT_SRC = `#version 300 es
+const ATLAS_DIM = 4096;
+
+export function atlasLayout(tileSize = DEFAULT_TILE) {
+  const cols = ATLAS_DIM / tileSize;
+  return { cols, slots: cols * cols };
+}
+
+export const ATLAS_SLOTS = atlasLayout().slots;
+
+function buildVertSrc(tile: number): string {
+  return `#version 300 es
 layout(location=0) in vec2 aCorner;
 layout(location=1) in vec2 aPos;
 layout(location=2) in vec2 aUV;
@@ -20,7 +27,7 @@ out vec2 vSlot;
 out float vTint;
 out float vSpawn;
 out float vZone;
-const float T = ${TILE.toFixed(1)};
+const float T = ${tile.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
 	vec2 world = aPos + aCorner * T + uFloorOffset;
@@ -34,8 +41,10 @@ void main() {
 	vSpawn = aSpawn;
 	vZone = aZone;
 }`;
+}
 
-const FRAG_SRC = `#version 300 es
+function buildFragSrc(tile: number): string {
+  return `#version 300 es
 precision highp float;
 in vec2 vUV;
 in vec2 vSlot;
@@ -45,7 +54,7 @@ in float vZone;
 uniform sampler2D uAtlas;
 uniform float uScale;
 out vec4 frag;
-const float T = ${TILE.toFixed(1)};
+const float T = ${tile.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
 	vec2 texel = vUV * A;
@@ -84,8 +93,10 @@ void main() {
 	if ((zf & 4) != 0) { col.g *= 0.5; }
 	frag = vec4(mix(col, vec3(0.0), vTint * 0.45), c.a);
 }`;
+}
 
-const GHOST_FRAG_SRC = `#version 300 es
+function buildGhostFragSrc(tile: number): string {
+  return `#version 300 es
 precision highp float;
 in vec2 vUV;
 in vec2 vSlot;
@@ -93,7 +104,7 @@ in float vSpawn;
 uniform sampler2D uAtlas;
 uniform float uAlpha;
 out vec4 frag;
-const float T = ${TILE.toFixed(1)};
+const float T = ${tile.toFixed(1)};
 const float A = ${ATLAS_DIM.toFixed(1)};
 void main() {
 	vec2 lo = vSlot * A + 0.5;
@@ -102,6 +113,7 @@ void main() {
 	if (c.a < 0.01) discard;
 	frag = vec4(c.rgb * vec3(1.0, vSpawn, vSpawn), c.a * uAlpha);
 }`;
+}
 
 const DIM_VERT_SRC = `#version 300 es
 void main() {
@@ -120,10 +132,11 @@ void main() {
 const FLOATS_PER_INSTANCE = 7;
 const INSTANCE_STRIDE = FLOATS_PER_INSTANCE * 4;
 
-export function slotUV(slot: number): { u0: number; v0: number } {
-  const col = slot % ATLAS_COLS;
-  const row = Math.floor(slot / ATLAS_COLS);
-  return { u0: (col * TILE) / ATLAS_DIM, v0: (row * TILE) / ATLAS_DIM };
+export function slotUV(slot: number, tileSize = DEFAULT_TILE): { u0: number; v0: number } {
+  const cols = ATLAS_DIM / tileSize;
+  const col = slot % cols;
+  const row = Math.floor(slot / cols);
+  return { u0: (col * tileSize) / ATLAS_DIM, v0: (row * tileSize) / ATLAS_DIM };
 }
 
 interface ChunkMesh {
@@ -157,13 +170,17 @@ export class GLRenderer {
   private bufW = 0;
   private bufH = 0;
   private meshes = new Map<string, ChunkMesh>();
+  readonly tileSize: number;
+  private atlasCols: number;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, tileSize = DEFAULT_TILE) {
+    this.tileSize = tileSize;
+    this.atlasCols = ATLAS_DIM / tileSize;
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, premultipliedAlpha: false });
     if (!gl) throw new Error('WebGL2 is not available');
     this.gl = gl;
 
-    this.program = this.link(VERT_SRC, FRAG_SRC);
+    this.program = this.link(buildVertSrc(tileSize), buildFragSrc(tileSize));
     this.uCam = gl.getUniformLocation(this.program, 'uCam')!;
     this.uScale = gl.getUniformLocation(this.program, 'uScale')!;
     this.uSnap = gl.getUniformLocation(this.program, 'uSnap')!;
@@ -174,7 +191,7 @@ export class GLRenderer {
     this.uDimColor = gl.getUniformLocation(this.dimProgram, 'uColor')!;
     this.dimVao = gl.createVertexArray()!;
 
-    this.ghostProgram = this.link(VERT_SRC, GHOST_FRAG_SRC);
+    this.ghostProgram = this.link(buildVertSrc(tileSize), buildGhostFragSrc(tileSize));
     this.ghostCam = gl.getUniformLocation(this.ghostProgram, 'uCam')!;
     this.ghostScale = gl.getUniformLocation(this.ghostProgram, 'uScale')!;
     this.ghostSnap = gl.getUniformLocation(this.ghostProgram, 'uSnap')!;
@@ -263,11 +280,12 @@ export class GLRenderer {
 
   uploadSprite(slot: number, rgba: Uint8Array) {
     const gl = this.gl;
-    const col = slot % ATLAS_COLS;
-    const row = Math.floor(slot / ATLAS_COLS);
+    const t = this.tileSize;
+    const col = slot % this.atlasCols;
+    const row = Math.floor(slot / this.atlasCols);
     gl.bindTexture(gl.TEXTURE_2D, this.atlas);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, col * TILE, row * TILE, TILE, TILE, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, col * t, row * t, t, t, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
   }
 
   setChunkMesh(key: string, data: Float32Array) {

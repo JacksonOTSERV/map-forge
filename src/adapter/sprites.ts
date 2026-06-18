@@ -2,10 +2,14 @@ import * as lz4 from 'lz4js';
 import { invoke } from '@tauri-apps/api/core';
 
 import { LoadedSprite } from '~/domain/sprite';
+import { SPRITE_SIZE } from '~/domain/tibia';
 
-const SPRITE_DATA_SIZE = 4096;
+function spriteDataSize(spriteSize: number): number {
+  return spriteSize * spriteSize * 4;
+}
 
-function parseRgbaSprites(buffer: Uint8Array): LoadedSprite[] {
+function parseRgbaSprites(buffer: Uint8Array, spriteSize = SPRITE_SIZE): LoadedSprite[] {
+  const SPRITE_DATA_SIZE = spriteDataSize(spriteSize);
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   const sprites: LoadedSprite[] = [];
   let offset = 0;
@@ -35,7 +39,8 @@ export async function loadSprites(
   sprPath: string,
   ids: number[],
   transparent: boolean,
-  cache: Map<number, LoadedSprite>
+  cache: Map<number, LoadedSprite>,
+  spriteSize = SPRITE_SIZE
 ): Promise<void> {
   const missing = [...new Set(ids.filter((id) => id > 0 && !cache.has(id)))];
   if (missing.length === 0) return;
@@ -47,7 +52,7 @@ export async function loadSprites(
   });
   const compressedBuf = compressed instanceof Uint8Array ? compressed : new Uint8Array(compressed);
   const decompressed = lz4.decompress(compressedBuf);
-  for (const sprite of parseRgbaSprites(decompressed)) {
+  for (const sprite of parseRgbaSprites(decompressed, spriteSize)) {
     cache.set(sprite.id, sprite);
   }
 }

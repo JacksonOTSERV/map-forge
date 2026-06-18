@@ -1,5 +1,5 @@
 import { PaletteBrush } from '~/domain/palette';
-import { ThingType, getSpriteIndex } from '~/domain/tibia';
+import { ThingType, getSpriteIndex, SPRITE_SIZE } from '~/domain/tibia';
 import { isColorized, OutfitColors } from '~/domain/outfit';
 
 export interface SpriteCell {
@@ -33,7 +33,7 @@ export function resolveBrushThing(
   return items.get(clientId) ?? null;
 }
 
-export function brushSpriteLayout(thing: ThingType, isCreature: boolean, colors?: OutfitColors): BrushSpriteLayout {
+export function brushSpriteLayout(thing: ThingType, isCreature: boolean, colors?: OutfitColors, tileSize = SPRITE_SIZE): BrushSpriteLayout {
   const cols = Math.max(1, thing.width);
   const rows = Math.max(1, thing.height);
   const patternX = isCreature ? Math.min(2, Math.max(0, thing.patternX - 1)) : 0;
@@ -45,7 +45,7 @@ export function brushSpriteLayout(thing: ThingType, isCreature: boolean, colors?
       const index = getSpriteIndex(thing, w, h, 0, patternX, 0, 0, 0);
       const spriteId = thing.spriteIndex[index];
       if (spriteId == null || spriteId === 0) continue;
-      const cell: SpriteCell = { dx: (cols - 1 - w) * 32, dy: (rows - 1 - h) * 32, spriteId };
+      const cell: SpriteCell = { dx: (cols - 1 - w) * tileSize, dy: (rows - 1 - h) * tileSize, spriteId };
       if (hasMask) {
         const maskIndex = getSpriteIndex(thing, w, h, 1, patternX, 0, 0, 0);
         const maskId = thing.spriteIndex[maskIndex];
@@ -55,6 +55,6 @@ export function brushSpriteLayout(thing: ThingType, isCreature: boolean, colors?
     }
   }
 
-  const exactSize = thing.exactSize > 0 ? thing.exactSize : Math.max(cols, rows) * 32;
+  const exactSize = thing.exactSize > 0 ? thing.exactSize : Math.max(cols, rows) * tileSize;
   return { cols, rows, exactSize, cells, colors: hasMask ? colors : undefined };
 }

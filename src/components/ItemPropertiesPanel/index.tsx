@@ -7,6 +7,7 @@ import { LoadedSprite } from '~/domain/sprite';
 import { loadSprites } from '~/adapter/sprites';
 import { Hint } from '~/components/commons/ui/tooltip';
 import { brushSpriteLayout } from '~/usecase/brushSprite';
+import { TILE } from '~/components/MapCanvas/constants';
 import { SelectedItem } from '~/components/MapCanvas/types';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { useAssetsBundle } from '~/usecase/context/AssetsContext';
@@ -45,8 +46,8 @@ const ItemSprite = ({
     if (!thing) return;
     const layout = brushSpriteLayout(thing, false);
     if (!layout || layout.cells.length === 0) return;
-    const offW = layout.cols * 32;
-    const offH = layout.rows * 32;
+    const offW = layout.cols * TILE;
+    const offH = layout.rows * TILE;
     const off = document.createElement('canvas');
     off.width = offW;
     off.height = offH;
@@ -56,7 +57,7 @@ const ItemSprite = ({
     for (const cell of layout.cells) {
       const sprite = cache.get(cell.spriteId);
       if (!sprite || sprite.empty) continue;
-      octx.putImageData(new ImageData(new Uint8ClampedArray(sprite.rgba), 32, 32), cell.dx, cell.dy);
+      octx.putImageData(new ImageData(new Uint8ClampedArray(sprite.rgba), TILE, TILE), cell.dx, cell.dy);
       drew = true;
     }
     if (!drew) return;

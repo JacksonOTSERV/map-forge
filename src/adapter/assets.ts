@@ -40,6 +40,7 @@ export interface LoadedAssets {
   transparency: boolean;
   spritesCount: number;
   otbItemCount: number;
+  spriteSize: number;
 }
 
 export async function mapClientIds(serverIds: number[]): Promise<number[]> {
@@ -128,6 +129,7 @@ interface RustSprHeader {
   signature: number;
   extended: boolean;
   sprite_count: number;
+  sprite_size: number;
 }
 
 export async function loadAssets(dataDir: string, clientDir: string, version = DEFAULT_VERSION): Promise<LoadedAssets> {
@@ -160,6 +162,7 @@ export async function loadAssets(dataDir: string, clientDir: string, version = D
     sprPath,
     transparency,
     spritesCount: sprHeader.sprite_count,
-    otbItemCount
+    otbItemCount,
+    spriteSize: sprHeader.sprite_size
   };
 }

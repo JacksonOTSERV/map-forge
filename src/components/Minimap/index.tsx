@@ -7,8 +7,7 @@ import { miniMapRgb } from '~/usecase/minimapColor';
 import { MapView, MinimapImage } from '~/domain/map';
 import { Hint } from '~/components/commons/ui/tooltip';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
-
-const TILE = 32;
+import { TILE } from '~/components/MapCanvas/constants';
 const EDIT_DEBOUNCE_MS = 150;
 const FETCH_DEBOUNCE_MS = 60;
 const MIN_CELL_PX = 1;

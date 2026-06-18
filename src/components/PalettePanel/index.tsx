@@ -21,19 +21,21 @@ import PaletteSearch from './PaletteSearch';
 import WaypointsList from './WaypointsList';
 import BrushThumbnail from './BrushThumbnail';
 
-const CELL_SIZE = 32;
+import { TILE } from '~/components/MapCanvas/constants';
+
+const CELL_SIZE = TILE;
 
 function makeBrushPreview(layout: BrushSpriteLayout, cache: Map<number, LoadedSprite>): string | null {
   const canvas = document.createElement('canvas');
-  canvas.width = layout.cols * 32;
-  canvas.height = layout.rows * 32;
+  canvas.width = layout.cols * CELL_SIZE;
+  canvas.height = layout.rows * CELL_SIZE;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   let drew = false;
   for (const cell of layout.cells) {
     const sprite = cache.get(cell.spriteId);
     if (!sprite || sprite.empty) continue;
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(sprite.rgba), 32, 32), cell.dx, cell.dy);
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(sprite.rgba), CELL_SIZE, CELL_SIZE), cell.dx, cell.dy);
     drew = true;
   }
   return drew ? canvas.toDataURL() : null;

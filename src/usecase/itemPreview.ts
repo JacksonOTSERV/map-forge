@@ -1,15 +1,13 @@
 import { LoadedSprite } from '~/domain/sprite';
-import { ThingType, getSpriteIndex } from '~/domain/tibia';
+import { ThingType, getSpriteIndex, SPRITE_SIZE } from '~/domain/tibia';
 
-const TILE = 32;
-
-export function buildItemPreview(thing: ThingType | undefined, spriteData: Map<number, LoadedSprite>): string | undefined {
+export function buildItemPreview(thing: ThingType | undefined, spriteData: Map<number, LoadedSprite>, tileSize = SPRITE_SIZE): string | undefined {
   if (!thing || thing.spriteIndex.length === 0) return undefined;
   const w = Math.max(1, thing.width);
   const h = Math.max(1, thing.height);
   const canvas = document.createElement('canvas');
-  canvas.width = w * TILE;
-  canvas.height = h * TILE;
+  canvas.width = w * tileSize;
+  canvas.height = h * tileSize;
   const ctx = canvas.getContext('2d');
   if (!ctx) return undefined;
   let drew = false;
@@ -20,7 +18,7 @@ export function buildItemPreview(thing: ThingType | undefined, spriteData: Map<n
         if (!sid) continue;
         const data = spriteData.get(sid);
         if (!data || data.empty) continue;
-        ctx.putImageData(new ImageData(new Uint8ClampedArray(data.rgba), TILE, TILE), (w - 1 - ww) * TILE, (h - 1 - hh) * TILE);
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(data.rgba), tileSize, tileSize), (w - 1 - ww) * tileSize, (h - 1 - hh) * tileSize);
         drew = true;
       }
     }

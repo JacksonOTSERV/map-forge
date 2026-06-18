@@ -3,6 +3,7 @@ import React from 'react';
 import { LoadedSprite } from '~/domain/sprite';
 import { colorizeOutfit } from '~/domain/outfit';
 import { BrushSpriteLayout } from '~/usecase/brushSprite';
+import { TILE } from '~/components/MapCanvas/constants';
 
 interface BrushThumbnailProps {
   size: number;
@@ -30,8 +31,8 @@ const BrushThumbnail = ({ layout, cache, version, size }: BrushThumbnailProps) =
     ctx.clearRect(0, 0, backingW, backingH);
     if (!layout || layout.cells.length === 0) return;
 
-    const offW = layout.cols * 32;
-    const offH = layout.rows * 32;
+    const offW = layout.cols * TILE;
+    const offH = layout.rows * TILE;
     const off = document.createElement('canvas');
     off.width = offW;
     off.height = offH;
@@ -47,7 +48,7 @@ const BrushThumbnail = ({ layout, cache, version, size }: BrushThumbnailProps) =
         const mask = cache.get(cell.maskSpriteId);
         if (mask && !mask.empty) rgba = colorizeOutfit(sprite.rgba, mask.rgba, layout.colors);
       }
-      octx.putImageData(new ImageData(new Uint8ClampedArray(rgba), 32, 32), cell.dx, cell.dy);
+      octx.putImageData(new ImageData(new Uint8ClampedArray(rgba), TILE, TILE), cell.dx, cell.dy);
       drew = true;
     }
     if (!drew) return;
