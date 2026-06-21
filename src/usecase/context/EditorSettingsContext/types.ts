@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { ZoneVisibility } from '~/domain/zones';
+import { SelectionMode } from '~/usecase/floors';
 import { TooltipTypes, TooltipTypeKey } from '~/domain/tooltips';
 
 export interface EditorSettingsValue {
@@ -13,6 +14,8 @@ export interface EditorSettingsValue {
   showTooltips: boolean;
   tooltipTypes: TooltipTypes;
   showRenderStats: boolean;
+  selectionMode: SelectionMode;
+  compensateSelection: boolean;
   spawnSize: number;
   spawnTime: number;
   autoCreateSpawn: boolean;
@@ -31,6 +34,8 @@ export interface EditorSettingsValue {
   toggleTooltipType: (key: TooltipTypeKey) => void;
   toggleTooltipTypes: (keys: TooltipTypeKey[]) => void;
   toggleRenderStats: () => void;
+  setSelectionMode: (mode: SelectionMode) => void;
+  toggleCompensateSelection: () => void;
   toggleZone: (key: keyof ZoneVisibility) => void;
   setAllZones: (visible: boolean) => void;
 }

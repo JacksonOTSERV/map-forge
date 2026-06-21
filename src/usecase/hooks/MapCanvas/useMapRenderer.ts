@@ -32,8 +32,8 @@ import {
   spawnTileKey,
   buildThingGhost,
   appendCreatures,
-  buildTopItemMesh,
   buildCreatureGhost,
+  buildSelectionGhost,
   buildSpawnAreaGhost,
   spawnCountsForChunk
 } from './meshBuilder';
@@ -354,14 +354,19 @@ export function useMapRenderer(deps: RendererDeps) {
           if (here) {
             creaturesByTile.delete(tileKey(tx, ty));
             const sc = selection.creature.current;
-            const cSel = !!sc && sc.z === z && sc.x === tx && sc.y === ty;
+            const cSel =
+              (!!sc && sc.z === z && sc.x === tx && sc.y === ty) || selection.creatures.current.has(`${z},${tx},${ty}`);
             if (!appendCreatures(inst, here, outfits, atlas, frameTick.current, missing, cSel)) complete = false;
           }
         }
 
         if (markerThing && spawnCenters.has(spawnTileKey(tx, ty))) {
           const selSpawn = selection.spawn.current;
-          const markerTint = selSpawn && selSpawn.z === z && selSpawn.x === tx && selSpawn.y === ty ? 1 : 0;
+          const markerTint =
+            (selSpawn && selSpawn.z === z && selSpawn.x === tx && selSpawn.y === ty) ||
+            selection.spawns.current.has(`${z},${tx},${ty}`)
+              ? 1
+              : 0;
           for (let l = 0; l < markerThing.layers; l++) {
             for (let h = 0; h < markerThing.height; h++) {
               for (let w = 0; w < markerThing.width; w++) {
@@ -391,7 +396,9 @@ export function useMapRenderer(deps: RendererDeps) {
 
     for (const arr of creaturesByTile.values()) {
       const sc = selection.creature.current;
-      const cSel = !!sc && arr.length > 0 && sc.z === z && sc.x === arr[0].x && sc.y === arr[0].y;
+      const cSel =
+        (!!sc && arr.length > 0 && sc.z === z && sc.x === arr[0].x && sc.y === arr[0].y) ||
+        (arr.length > 0 && selection.creatures.current.has(`${z},${arr[0].x},${arr[0].y}`));
       if (!appendCreatures(inst, arr, outfits, atlas, frameTick.current, missing, cSel)) complete = false;
     }
 
@@ -752,11 +759,11 @@ export function useMapRenderer(deps: RendererDeps) {
     const md = scene.moveDrag.current;
     if (md && md.active && scene.moveDest.current) {
       const ctx = { items: inputs.current.items, tiles, atlas };
-      const ghost = buildTopItemMesh(
+      const ghost = buildSelectionGhost(
         ctx,
         frameTick.current,
         floorZ,
-        md.from,
+        selection.entries.current.values(),
         scene.moveDest.current.x - md.from.x,
         scene.moveDest.current.y - md.from.y
       );

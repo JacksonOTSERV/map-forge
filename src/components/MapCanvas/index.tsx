@@ -75,6 +75,8 @@ const MapCanvas = (props: MapCanvasProps) => {
     showTooltips: settings.showTooltips,
     tooltipTypes: settings.tooltipTypes,
     automagic: settings.automagic,
+    selectionMode: settings.selectionMode,
+    compensateSelection: settings.compensateSelection,
     zoneVisibility: settings.zoneVisibility,
     spawnTime: settings.spawnTime,
     spawnRadius: settings.spawnSize,

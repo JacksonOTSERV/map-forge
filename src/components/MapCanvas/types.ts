@@ -5,6 +5,7 @@ import { ThingType } from '~/domain/tibia';
 import { MapHouses } from '~/domain/house';
 import { MapSpawns } from '~/domain/creature';
 import { ZoneVisibility } from '~/domain/zones';
+import { SelectionMode } from '~/usecase/floors';
 import { TooltipTypes } from '~/domain/tooltips';
 import { MapWaypoints } from '~/domain/waypoint';
 import { MapView, MapMeta, Position } from '~/domain/map';
@@ -135,6 +136,8 @@ export interface MapCanvasContextInputs {
   showTooltips: boolean;
   tooltipTypes: TooltipTypes;
   automagic: boolean;
+  selectionMode: SelectionMode;
+  compensateSelection: boolean;
   zoneVisibility: ZoneVisibility;
   spawnTime: number;
   spawnRadius: number;

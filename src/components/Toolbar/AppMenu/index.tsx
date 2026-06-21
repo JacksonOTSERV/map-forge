@@ -81,7 +81,11 @@ const AppMenu = ({
     showTooltips,
     toggleTooltips,
     tooltipTypes,
-    toggleTooltipTypes
+    toggleTooltipTypes,
+    selectionMode,
+    setSelectionMode,
+    compensateSelection,
+    toggleCompensateSelection
   } = useEditorSettings();
   const anyZoneVisible = zoneVisibility.pz || zoneVisibility.nopvp || zoneVisibility.nologout || zoneVisibility.pvp;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
@@ -142,6 +146,41 @@ const AppMenu = ({
       <MenubarMenu value="edit">
         <MenubarTrigger onMouseDown={stop}>Edit</MenubarTrigger>
         <MenubarContent onMouseDown={stop}>
+          <MenubarSub>
+            <MenubarSubTrigger>Selection Mode</MenubarSubTrigger>
+            <MenubarSubContent>
+              <MenubarCheckboxItem
+                checked={compensateSelection}
+                onSelect={(e) => e.preventDefault()}
+                onCheckedChange={toggleCompensateSelection}
+              >
+                Compensate Selection
+              </MenubarCheckboxItem>
+              <MenubarSeparator />
+              <MenubarCheckboxItem
+                onSelect={(e) => e.preventDefault()}
+                checked={selectionMode === 'current'}
+                onCheckedChange={() => setSelectionMode('current')}
+              >
+                Current Floor
+              </MenubarCheckboxItem>
+              <MenubarCheckboxItem
+                checked={selectionMode === 'lower'}
+                onSelect={(e) => e.preventDefault()}
+                onCheckedChange={() => setSelectionMode('lower')}
+              >
+                Lower Floors
+              </MenubarCheckboxItem>
+              <MenubarCheckboxItem
+                onSelect={(e) => e.preventDefault()}
+                checked={selectionMode === 'visible'}
+                onCheckedChange={() => setSelectionMode('visible')}
+              >
+                Visible Floors
+              </MenubarCheckboxItem>
+            </MenubarSubContent>
+          </MenubarSub>
+          <MenubarSeparator />
           <MenubarItem onSelect={onOpenPreferences}>
             Preferences...
             <MenubarShortcut>Ctrl+,</MenubarShortcut>

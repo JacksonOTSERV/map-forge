@@ -210,21 +210,21 @@ export async function eraseArea(
 
 export async function deleteSelection(
   mapId: number,
-  z: number,
+  zs: number[],
   xs: number[],
   ys: number[],
   all: boolean[],
   automagic: boolean
-): Promise<number[]> {
-  return invoke<number[]>('delete_selection', { mapId, z, xs, ys, all, automagic });
+): Promise<[number, number][]> {
+  return invoke<[number, number][]>('delete_selection', { mapId, zs, xs, ys, all, automagic });
 }
 
-export async function copySelection(mapId: number, z: number, xs: number[], ys: number[], all: boolean[]): Promise<number> {
-  return invoke<number>('copy_selection', { mapId, z, xs, ys, all });
+export async function copySelection(mapId: number, zs: number[], xs: number[], ys: number[], all: boolean[]): Promise<number> {
+  return invoke<number>('copy_selection', { mapId, zs, xs, ys, all });
 }
 
-export async function pasteSelection(mapId: number, x: number, y: number, z: number): Promise<number[]> {
-  return invoke<number[]>('paste_selection', { mapId, x, y, z });
+export async function pasteSelection(mapId: number, x: number, y: number, z: number): Promise<[number, number][]> {
+  return invoke<[number, number][]>('paste_selection', { mapId, x, y, z });
 }
 
 export async function moveItem(
@@ -237,6 +237,19 @@ export async function moveItem(
   automagic: boolean
 ): Promise<number[]> {
   return invoke<number[]>('move_item', { mapId, z, fromX, fromY, toX, toY, automagic });
+}
+
+export async function moveSelection(
+  mapId: number,
+  zs: number[],
+  xs: number[],
+  ys: number[],
+  all: boolean[],
+  dx: number,
+  dy: number,
+  automagic: boolean
+): Promise<[number, number][]> {
+  return invoke<[number, number][]>('move_selection', { mapId, zs, xs, ys, all, dx, dy, automagic });
 }
 
 export async function previewPaint(

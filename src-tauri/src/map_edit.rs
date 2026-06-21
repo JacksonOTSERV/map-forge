@@ -40,6 +40,7 @@ use crate::{CopyBufferState, MapState, MaterialsState, OtbState, PlaceFlags, Pla
 pub struct CopyTile {
 	pub dx: u16,
 	pub dy: u16,
+	pub dz: i8,
 	pub items: Vec<(u16, u16)>,
 }
 
@@ -766,6 +767,105 @@ pub fn move_item(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn move_selection(
+	map_id: u32,
+	zs: Vec<u8>,
+	xs: Vec<u16>,
+	ys: Vec<u16>,
+	all: Vec<bool>,
+	dx: i32,
+	dy: i32,
+	automagic: bool,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+) -> Result<Vec<(u8, u32)>, String> {
+	if xs.len() != ys.len() || xs.len() != all.len() || xs.len() != zs.len() {
+		return Err("selection arrays length mismatch".into());
+	}
+	if dx == 0 && dy == 0 {
+		return Ok(Vec::new());
+	}
+
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let mats = materials_guard.as_ref();
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+
+	let dest = |x: u16, y: u16| -> Option<(u16, u16)> {
+		let nx = x as i32 + dx;
+		let ny = y as i32 + dy;
+		if (0..=u16::MAX as i32).contains(&nx) && (0..=u16::MAX as i32).contains(&ny) {
+			Some((nx as u16, ny as u16))
+		} else {
+			None
+		}
+	};
+
+	let mut by_floor: HashMap<u8, Vec<(u16, u16)>> = HashMap::new();
+	for i in 0..xs.len() {
+		if let Some((nx, ny)) = dest(xs[i], ys[i]) {
+			let f = by_floor.entry(zs[i]).or_default();
+			f.push((xs[i], ys[i]));
+			f.push((nx, ny));
+		}
+	}
+	for (&z, tiles) in &by_floor {
+		m.ensure_tiles(z, tiles, otb)?;
+	}
+	m.record_begin();
+
+	let mut touched: HashSet<(u8, u32)> = HashSet::new();
+	let mut affected: HashMap<u8, HashSet<(u16, u16)>> = HashMap::new();
+	let mut moved: Vec<(u8, u16, u16, Vec<(u16, u16)>)> = Vec::new();
+	for i in 0..xs.len() {
+		let (z, x, y) = (zs[i], xs[i], ys[i]);
+		let Some((nx, ny)) = dest(x, y) else {
+			continue;
+		};
+		let stack = tile_stack_mut(m, z, x, y);
+		let items = if all[i] {
+			std::mem::take(stack)
+		} else {
+			match stack.pop() {
+				Some(item) => vec![item],
+				None => Vec::new(),
+			}
+		};
+		if items.is_empty() {
+			continue;
+		}
+		touched.insert((z, chunk_key_of(x, y)));
+		affected.entry(z).or_default().insert((x, y));
+		moved.push((z, nx, ny, items));
+	}
+
+	for (z, nx, ny, items) in moved {
+		for (client, server) in items {
+			insert_ordered(tile_stack_mut(m, z, nx, ny), &place, mats, client, server);
+		}
+		touched.insert((z, chunk_key_of(nx, ny)));
+		affected.entry(z).or_default().insert((nx, ny));
+	}
+
+	if automagic {
+		if let Some(mats) = mats {
+			for (&z, tiles) in &affected {
+				touched.extend(auto_all(m, mats, &place, otb, z, tiles).into_iter().map(|k| (z, k)));
+			}
+		}
+	}
+	m.record_commit(ACTION_MOVE);
+	Ok(touched.into_iter().collect())
+}
+
+#[tauri::command]
 pub fn delete_item(
 	map_id: u32,
 	z: u8,
@@ -931,7 +1031,7 @@ pub fn erase_area(
 #[allow(clippy::too_many_arguments)]
 pub fn delete_selection(
 	map_id: u32,
-	z: u8,
+	zs: Vec<u8>,
 	xs: Vec<u16>,
 	ys: Vec<u16>,
 	all: Vec<bool>,
@@ -940,8 +1040,8 @@ pub fn delete_selection(
 	map_state: tauri::State<MapState>,
 	materials_state: tauri::State<MaterialsState>,
 	placement_state: tauri::State<PlacementState>,
-) -> Result<Vec<u32>, String> {
-	if xs.len() != ys.len() || xs.len() != all.len() {
+) -> Result<Vec<(u8, u32)>, String> {
+	if xs.len() != ys.len() || xs.len() != all.len() || xs.len() != zs.len() {
 		return Err("selection arrays length mismatch".into());
 	}
 
@@ -953,14 +1053,20 @@ pub fn delete_selection(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
-	m.ensure_tiles(z, &edit_tiles, otb)?;
+
+	let mut by_floor: HashMap<u8, Vec<(u16, u16)>> = HashMap::new();
+	for i in 0..xs.len() {
+		by_floor.entry(zs[i]).or_default().push((xs[i], ys[i]));
+	}
+	for (&z, tiles) in &by_floor {
+		m.ensure_tiles(z, tiles, otb)?;
+	}
 	m.record_begin();
 
-	let mut touched: HashSet<u32> = HashSet::new();
-	let mut affected: HashSet<(u16, u16)> = HashSet::new();
+	let mut touched: HashSet<(u8, u32)> = HashSet::new();
+	let mut affected: HashMap<u8, HashSet<(u16, u16)>> = HashMap::new();
 	for i in 0..xs.len() {
-		let (x, y) = (xs[i], ys[i]);
+		let (z, x, y) = (zs[i], xs[i], ys[i]);
 		let stack = tile_stack_mut(m, z, x, y);
 		let changed = if all[i] {
 			let had = !stack.is_empty();
@@ -970,14 +1076,16 @@ pub fn delete_selection(
 			stack.pop().is_some()
 		};
 		if changed {
-			touched.insert(chunk_key_of(x, y));
-			affected.insert((x, y));
+			touched.insert((z, chunk_key_of(x, y)));
+			affected.entry(z).or_default().insert((x, y));
 		}
 	}
 
-	if automagic && !affected.is_empty() {
+	if automagic {
 		if let Some(mats) = mats {
-			touched.extend(auto_all(m, mats, &place, otb, z, &affected));
+			for (&z, tiles) in &affected {
+				touched.extend(auto_all(m, mats, &place, otb, z, tiles).into_iter().map(|k| (z, k)));
+			}
 		}
 	}
 	m.record_commit(ACTION_DELETE);
@@ -987,7 +1095,7 @@ pub fn delete_selection(
 #[tauri::command]
 pub fn copy_selection(
 	map_id: u32,
-	z: u8,
+	zs: Vec<u8>,
 	xs: Vec<u16>,
 	ys: Vec<u16>,
 	all: Vec<bool>,
@@ -995,7 +1103,7 @@ pub fn copy_selection(
 	map_state: tauri::State<MapState>,
 	clip_state: tauri::State<CopyBufferState>,
 ) -> Result<u32, String> {
-	if xs.len() != ys.len() || xs.len() != all.len() {
+	if xs.len() != ys.len() || xs.len() != all.len() || xs.len() != zs.len() {
 		return Err("selection arrays length mismatch".into());
 	}
 
@@ -1003,21 +1111,28 @@ pub fn copy_selection(
 	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
-	m.ensure_tiles(z, &edit_tiles, otb)?;
+
+	let mut by_floor: HashMap<u8, Vec<(u16, u16)>> = HashMap::new();
+	for i in 0..xs.len() {
+		by_floor.entry(zs[i]).or_default().push((xs[i], ys[i]));
+	}
+	for (&z, tiles) in &by_floor {
+		m.ensure_tiles(z, tiles, otb)?;
+	}
 
 	let min_x = xs.iter().copied().min().unwrap_or(0);
 	let min_y = ys.iter().copied().min().unwrap_or(0);
+	let min_z = zs.iter().copied().min().unwrap_or(0);
 
 	let mut tiles: Vec<CopyTile> = Vec::new();
 	for i in 0..xs.len() {
-		let (x, y) = (xs[i], ys[i]);
+		let (z, x, y) = (zs[i], xs[i], ys[i]);
 		let stack = stack_at(m, z, x, y);
 		if stack.is_empty() {
 			continue;
 		}
 		let items = if all[i] { stack } else { vec![*stack.last().unwrap()] };
-		tiles.push(CopyTile { dx: x - min_x, dy: y - min_y, items });
+		tiles.push(CopyTile { dx: x - min_x, dy: y - min_y, dz: (z as i16 - min_z as i16) as i8, items });
 	}
 
 	let count = tiles.len() as u32;
@@ -1036,7 +1151,7 @@ pub fn paste_selection(
 	materials_state: tauri::State<MaterialsState>,
 	placement_state: tauri::State<PlacementState>,
 	clip_state: tauri::State<CopyBufferState>,
-) -> Result<Vec<u32>, String> {
+) -> Result<Vec<(u8, u32)>, String> {
 	let clip = clip_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let Some(buffer) = clip.as_ref() else {
 		return Ok(Vec::new());
@@ -1050,34 +1165,38 @@ pub fn paste_selection(
 
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
-	let paste_tiles: Vec<(u16, u16)> = buffer
-		.tiles
-		.iter()
-		.filter_map(|t| {
-			let tx = x as u32 + t.dx as u32;
-			let ty = y as u32 + t.dy as u32;
-			if tx > u16::MAX as u32 || ty > u16::MAX as u32 {
-				None
-			} else {
-				Some((tx as u16, ty as u16))
-			}
-		})
-		.collect();
-	m.ensure_tiles(z, &paste_tiles, otb)?;
-	m.record_begin();
 
-	let mut touched: HashSet<u32> = HashSet::new();
-	for tile in &buffer.tiles {
+	let target = |tile: &CopyTile| -> Option<(u8, u16, u16)> {
 		let tx = x as u32 + tile.dx as u32;
 		let ty = y as u32 + tile.dy as u32;
-		if tx > u16::MAX as u32 || ty > u16::MAX as u32 {
+		let tz = z as i32 + tile.dz as i32;
+		if tx > u16::MAX as u32 || ty > u16::MAX as u32 || !(0..=15).contains(&tz) {
+			None
+		} else {
+			Some((tz as u8, tx as u16, ty as u16))
+		}
+	};
+
+	let mut by_floor: HashMap<u8, Vec<(u16, u16)>> = HashMap::new();
+	for tile in &buffer.tiles {
+		if let Some((tz, tx, ty)) = target(tile) {
+			by_floor.entry(tz).or_default().push((tx, ty));
+		}
+	}
+	for (&tz, tiles) in &by_floor {
+		m.ensure_tiles(tz, tiles, otb)?;
+	}
+	m.record_begin();
+
+	let mut touched: HashSet<(u8, u32)> = HashSet::new();
+	for tile in &buffer.tiles {
+		let Some((tz, tx, ty)) = target(tile) else {
 			continue;
-		}
-		let (tx, ty) = (tx as u16, ty as u16);
+		};
 		for &(client, server) in &tile.items {
-			insert_ordered(tile_stack_mut(m, z, tx, ty), &place, mats, client, server);
+			insert_ordered(tile_stack_mut(m, tz, tx, ty), &place, mats, client, server);
 		}
-		touched.insert(chunk_key_of(tx, ty));
+		touched.insert((tz, chunk_key_of(tx, ty)));
 	}
 	m.record_commit(ACTION_PAINT);
 	Ok(touched.into_iter().collect())

@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { SelectionMode } from '~/usecase/floors';
 import { useSetting } from '~/usecase/hooks/useSetting';
 import { ZoneVisibility, DEFAULT_ZONE_VISIBILITY } from '~/domain/zones';
 import { TooltipTypes, TooltipTypeKey, DEFAULT_TOOLTIP_TYPES } from '~/domain/tooltips';
@@ -25,6 +26,8 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
     revive: reviveTooltipTypes
   });
   const [showRenderStats, setShowRenderStats] = useSetting('showRenderStats', true);
+  const [selectionMode, setSelectionMode] = useSetting<SelectionMode>('selectionMode', 'current');
+  const [compensateSelection, setCompensateSelection] = useSetting('compensateSelection', true);
   const [zoneVisibility, setZoneVisibility] = useSetting<ZoneVisibility>('zoneVisibility', DEFAULT_ZONE_VISIBILITY, {
     revive: reviveZones
   });
@@ -73,6 +76,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
     [setTooltipTypes]
   );
   const toggleRenderStats = React.useCallback(() => setShowRenderStats((v) => !v), [setShowRenderStats]);
+  const toggleCompensateSelection = React.useCallback(() => setCompensateSelection((v) => !v), [setCompensateSelection]);
   const toggleZone = React.useCallback(
     (key: keyof ZoneVisibility) => setZoneVisibility((v) => ({ ...v, [key]: !v[key] })),
     [setZoneVisibility]
@@ -93,6 +97,8 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       showTooltips,
       tooltipTypes,
       showRenderStats,
+      selectionMode,
+      compensateSelection,
       spawnSize,
       spawnTime,
       autoCreateSpawn,
@@ -111,6 +117,8 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       toggleTooltipType,
       toggleTooltipTypes,
       toggleRenderStats,
+      setSelectionMode,
+      toggleCompensateSelection,
       toggleZone,
       setAllZones
     }),
@@ -124,6 +132,8 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       showTooltips,
       tooltipTypes,
       showRenderStats,
+      selectionMode,
+      compensateSelection,
       spawnSize,
       spawnTime,
       autoCreateSpawn,
@@ -142,6 +152,8 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       toggleTooltipType,
       toggleTooltipTypes,
       toggleRenderStats,
+      setSelectionMode,
+      toggleCompensateSelection,
       toggleZone,
       setAllZones
     ]

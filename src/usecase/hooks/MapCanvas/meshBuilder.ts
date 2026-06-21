@@ -1,4 +1,3 @@
-import { Position } from '~/domain/map';
 import { slotUV } from '~/usecase/glRenderer';
 import { LoadedSprite } from '~/domain/sprite';
 import { SpawnArea, CreaturePlacement } from '~/domain/creature';
@@ -243,66 +242,68 @@ export function buildThingGhost(
   return inst.length > 0 ? new Float32Array(inst) : null;
 }
 
-export function buildTopItemMesh(
+export function buildSelectionGhost(
   ctx: MeshContext,
   tick: number,
   floorZ: number,
-  tile: Position,
+  selected: Iterable<{ x: number; y: number; z: number; all: boolean }>,
   shiftTilesX: number,
   shiftTilesY: number
 ): Float32Array | null {
   const { items, tiles, atlas } = ctx;
-  if (tile.z !== floorZ) return null;
-
-  const tx = tile.x;
-  const ty = tile.y;
-  const ct = tiles.get(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), floorZ, tick);
-  if (!ct) return null;
-  let found = -1;
-  for (let i = 0; i < ct.tileX.length; i++) {
-    if (ct.tileX[i] === tx && ct.tileY[i] === ty) {
-      found = i;
-      break;
-    }
-  }
-  if (found < 0) return null;
-
-  const start = ct.itemOffset[found];
-  const end = ct.itemOffset[found + 1];
-  const top = end - 1;
   const sx = shiftTilesX * TILE;
   const sy = shiftTilesY * TILE;
   const inst: number[] = [];
-  let drawElevation = 0;
-  for (let ii = start; ii < end; ii++) {
-    const thing = items.get(ct.clientIds[ii]);
-    if (!thing || thing.spriteIndex.length === 0) continue;
 
-    if (ii === top) {
-      const px = thing.patternX > 0 ? tx % thing.patternX : 0;
-      const py = thing.patternY > 0 ? ty % thing.patternY : 0;
-      const countStack = isCountStack(thing);
-      const stackIdx = countStack ? stackSpriteIndex(thing, ct.counts[ii]) : 0;
-      const ox = (thing.offsetX || 0) + drawElevation;
-      const oy = (thing.offsetY || 0) + drawElevation;
+  for (const sel of selected) {
+    if (sel.z !== floorZ) continue;
+    const tx = sel.x;
+    const ty = sel.y;
+    const ct = tiles.get(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), floorZ, tick);
+    if (!ct) continue;
+    let found = -1;
+    for (let i = 0; i < ct.tileX.length; i++) {
+      if (ct.tileX[i] === tx && ct.tileY[i] === ty) {
+        found = i;
+        break;
+      }
+    }
+    if (found < 0) continue;
 
-      for (let l = 0; l < thing.layers; l++) {
-        for (let h = 0; h < thing.height; h++) {
-          for (let w = 0; w < thing.width; w++) {
-            const sid = thing.spriteIndex[countStack ? stackIdx : getSpriteIndex(thing, w, h, l, px, py, 0, 0)];
-            if (!sid) continue;
-            const data = atlas.data.current.get(sid);
-            if (!data || data.empty) continue;
-            const slot = atlas.slotFor(sid, data);
-            if (slot < 0) continue;
-            const { u0, v0 } = slotUV(slot);
-            inst.push((tx - w) * TILE - ox + sx, (ty - h) * TILE - oy + sy, u0, v0, 0, 1, 0);
+    const start = ct.itemOffset[found];
+    const end = ct.itemOffset[found + 1];
+    const top = end - 1;
+    let drawElevation = 0;
+    for (let ii = start; ii < end; ii++) {
+      const thing = items.get(ct.clientIds[ii]);
+      if (!thing || thing.spriteIndex.length === 0) continue;
+
+      if (sel.all || ii === top) {
+        const px = thing.patternX > 0 ? tx % thing.patternX : 0;
+        const py = thing.patternY > 0 ? ty % thing.patternY : 0;
+        const countStack = isCountStack(thing);
+        const stackIdx = countStack ? stackSpriteIndex(thing, ct.counts[ii]) : 0;
+        const ox = (thing.offsetX || 0) + drawElevation;
+        const oy = (thing.offsetY || 0) + drawElevation;
+
+        for (let l = 0; l < thing.layers; l++) {
+          for (let h = 0; h < thing.height; h++) {
+            for (let w = 0; w < thing.width; w++) {
+              const sid = thing.spriteIndex[countStack ? stackIdx : getSpriteIndex(thing, w, h, l, px, py, 0, 0)];
+              if (!sid) continue;
+              const data = atlas.data.current.get(sid);
+              if (!data || data.empty) continue;
+              const slot = atlas.slotFor(sid, data);
+              if (slot < 0) continue;
+              const { u0, v0 } = slotUV(slot);
+              inst.push((tx - w) * TILE - ox + sx, (ty - h) * TILE - oy + sy, u0, v0, 0, 1, 0);
+            }
           }
         }
       }
-    }
 
-    if (thing.hasElevation) drawElevation = Math.min(drawElevation + thing.elevation, MAX_ELEVATION);
+      if (thing.hasElevation) drawElevation = Math.min(drawElevation + thing.elevation, MAX_ELEVATION);
+    }
   }
 
   return inst.length > 0 ? new Float32Array(inst) : null;
