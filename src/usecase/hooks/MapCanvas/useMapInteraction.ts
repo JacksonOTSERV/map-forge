@@ -3,6 +3,7 @@ import React from 'react';
 import { Position } from '~/domain/map';
 import { isZoneTool } from '~/domain/tools';
 import { ZONE_TOOL_FLAG } from '~/domain/zones';
+import { selectionFloorBoxes } from '~/usecase/floors';
 import { buildItemPreview } from '~/usecase/itemPreview';
 import { formatPosition } from '~/usecase/positionFormat';
 import { MapSpawns, emptyMapSpawns } from '~/domain/creature';
@@ -31,7 +32,6 @@ import {
   removeCreatureAt
 } from '~/usecase/spawnEdits';
 import {
-  moveItem,
   undoEdit,
   redoEdit,
   setHouse,
@@ -42,6 +42,7 @@ import {
   paintTiles,
   previewPaint,
   packChunkKey,
+  moveSelection,
   copySelection,
   fetchMapChunks,
   pasteSelection,
@@ -51,15 +52,16 @@ import {
 import { MapScene } from './useMapScene';
 import { MapCamera } from './useMapCamera';
 import { SpriteAtlas } from './useSpriteAtlas';
-import { buildTopItemMesh } from './meshBuilder';
 import { ChunkTilesCache } from './useChunkTiles';
 import { ChunkMeshCache } from './useChunkMeshes';
-import { Selection, BoxSelection } from './useSelection';
+import { buildSelectionGhost } from './meshBuilder';
+import { Selection, BoxSelection, selectionSig, SelectionSnapshot } from './useSelection';
 
 type EditEntry =
   | { kind: 'item' }
   | { kind: 'spawn'; before: MapSpawns; after: MapSpawns }
-  | { kind: 'waypoint'; before: MapWaypoints; after: MapWaypoints };
+  | { kind: 'waypoint'; before: MapWaypoints; after: MapWaypoints }
+  | { kind: 'selection'; before: SelectionSnapshot; after: SelectionSnapshot };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -93,6 +95,13 @@ export function useMapInteraction(deps: InteractionDeps) {
 
   function recordItemEdit() {
     undoTimeline.current.push({ kind: 'item' });
+    redoTimeline.current = [];
+  }
+
+  function recordSelection(before: SelectionSnapshot) {
+    const after = selection.snapshot();
+    if (selectionSig(before) === selectionSig(after)) return;
+    undoTimeline.current.push({ kind: 'selection', before, after });
     redoTimeline.current = [];
   }
 
@@ -603,6 +612,16 @@ export function useMapInteraction(deps: InteractionDeps) {
     notifyEdit(z);
   }
 
+  async function refetchTagged(tagged: [number, number][]) {
+    const byZ = new Map<number, number[]>();
+    for (const [z, key] of tagged) {
+      const arr = byZ.get(z);
+      if (arr) arr.push(key);
+      else byZ.set(z, [key]);
+    }
+    for (const [z, keys] of byZ) await refetchKeysNow(keys, z);
+  }
+
   function hoverAt(pos: Position): HoverInfo {
     const { items, itemNames } = inputs.current;
     const ct = tiles.get(Math.floor(pos.x / CHUNK), Math.floor(pos.y / CHUNK), pos.z, scene.frameTick.current);
@@ -665,45 +684,56 @@ export function useMapInteraction(deps: InteractionDeps) {
     if (!md.active || !dest || (dest.x === md.from.x && dest.y === md.from.y)) return;
 
     const from = md.from;
+    const dx = dest.x - from.x;
+    const dy = dest.y - from.y;
+    const s = selectionArrays();
+    const { creatures, spawns } = selectedMarkers();
+    if (!s && creatures.length === 0 && spawns.length === 0) return;
+
+    if (creatures.length > 0 || spawns.length > 0) {
+      let model = inputs.current.spawns ?? emptyMapSpawns();
+      for (const c of creatures) model = moveCreature(model, c, { x: c.x + dx, y: c.y + dy, z: c.z });
+      for (const sp of spawns) model = moveSpawn(model, sp, { x: sp.x + dx, y: sp.y + dy, z: sp.z });
+      editSpawns(model);
+      selection.selectCreature(null);
+      selection.selectSpawn(null);
+      selection.creatures.current.clear();
+      selection.spawns.current.clear();
+      for (const c of creatures) if (c.x + dx >= 0 && c.y + dy >= 0) selection.addCreature({ x: c.x + dx, y: c.y + dy, z: c.z });
+      for (const sp of spawns) if (sp.x + dx >= 0 && sp.y + dy >= 0) selection.addSpawn({ x: sp.x + dx, y: sp.y + dy, z: sp.z });
+    }
+
+    if (!s) {
+      inputs.current.onSelect(null);
+      return;
+    }
+
     const ctx = { items: inputs.current.items, tiles, atlas };
-    scene.pendingMove.current = buildTopItemMesh(
+    scene.pendingMove.current = buildSelectionGhost(
       ctx,
       scene.frameTick.current,
       inputs.current.floorZ,
-      from,
-      dest.x - from.x,
-      dest.y - from.y
+      selection.entries.current.values(),
+      dx,
+      dy
     );
     recordItemEdit();
-    moveItem(inputs.current.map.id, from.z, from.x, from.y, dest.x, dest.y, inputs.current.automagic)
-      .then((touched) => refetchKeysNow(touched, from.z))
+    moveSelection(inputs.current.map.id, s.zs, s.xs, s.ys, s.all, dx, dy, inputs.current.automagic)
+      .then((touched) => refetchTagged(touched))
       .then(() => {
-        selection.selectTile(dest, false);
+        selection.setTiles(
+          s.xs.map((x, i) => ({ x: x + dx, y: s.ys[i] + dy, z: s.zs[i], all: s.all[i] })).filter((t) => t.x >= 0 && t.y >= 0)
+        );
         atlas.version.current++;
         inputs.current.onSelect(toSelected(hoverAt(dest)));
       })
-      .catch((err) => console.error('Failed to move item', err))
+      .catch((err) => console.error('Failed to move selection', err))
       .finally(() => {
         scene.pendingMove.current = null;
       });
   }
 
   function deleteSelected(silent = false) {
-    const base = inputs.current.spawns ?? emptyMapSpawns();
-    if (selection.creature.current) {
-      editSpawns(removeCreatureAt(base, selection.creature.current));
-      selection.selectCreature(null);
-      inputs.current.onSelect(null);
-      if (!silent) emit('Creature deleted');
-      return;
-    }
-    if (selection.spawn.current) {
-      editSpawns(removeSpawnAt(base, selection.spawn.current));
-      selection.selectSpawn(null);
-      inputs.current.onSelect(null);
-      if (!silent) emit('Spawn deleted');
-      return;
-    }
     if (selection.waypoint.current) {
       const wps = inputs.current.waypoints ?? emptyMapWaypoints();
       const wp = waypointAt(wps, selection.waypoint.current.x, selection.waypoint.current.y, selection.waypoint.current.z);
@@ -713,34 +743,87 @@ export function useMapInteraction(deps: InteractionDeps) {
       if (wp && !silent) emit(`Waypoint "${wp.name}" deleted`);
       return;
     }
-    const selTiles = [...selection.entries.current.values()];
-    if (selTiles.length === 0) return;
-    const z = selTiles[0].z;
-    const xs = selTiles.map((t) => t.x);
-    const ys = selTiles.map((t) => t.y);
-    const all = selTiles.map((t) => t.all);
-    const count = selTiles.length;
-    recordItemEdit();
-    deleteSelection(inputs.current.map.id, z, xs, ys, all, inputs.current.automagic)
-      .then((touched) => {
-        selection.clear();
-        return refetchKeysNow(touched, z);
-      })
-      .then(() => {
-        atlas.version.current++;
-        inputs.current.onSelect(null);
-        if (!silent) emit(`Deleted ${plural(count, 'tile')}`);
-      })
-      .catch((err) => {
-        console.error('Failed to delete selection', err);
-        emit('Delete failed');
-      });
+
+    const { creatures, spawns } = selectedMarkers();
+    const markerCount = creatures.length + spawns.length;
+    if (markerCount > 0) {
+      let model = inputs.current.spawns ?? emptyMapSpawns();
+      for (const c of creatures) model = removeCreatureAt(model, c);
+      for (const sp of spawns) model = removeSpawnAt(model, sp);
+      editSpawns(model);
+      selection.selectCreature(null);
+      selection.selectSpawn(null);
+      selection.creatures.current.clear();
+      selection.spawns.current.clear();
+    }
+
+    const s = selectionArrays();
+    if (s) {
+      const count = s.xs.length;
+      recordItemEdit();
+      deleteSelection(inputs.current.map.id, s.zs, s.xs, s.ys, s.all, inputs.current.automagic)
+        .then((touched) => {
+          selection.clear();
+          return refetchTagged(touched);
+        })
+        .then(() => {
+          atlas.version.current++;
+          inputs.current.onSelect(null);
+          if (!silent) emit(`Deleted ${plural(count + markerCount, 'object')}`);
+        })
+        .catch((err) => {
+          console.error('Failed to delete selection', err);
+          emit('Delete failed');
+        });
+      return;
+    }
+
+    if (markerCount > 0) {
+      inputs.current.onSelect(null);
+      if (!silent) emit(`Deleted ${plural(markerCount, 'object')}`);
+    }
   }
 
   function selectionArrays() {
     const sel = [...selection.entries.current.values()];
     if (sel.length === 0) return null;
-    return { z: sel[0].z, xs: sel.map((t) => t.x), ys: sel.map((t) => t.y), all: sel.map((t) => t.all) };
+    return { zs: sel.map((t) => t.z), xs: sel.map((t) => t.x), ys: sel.map((t) => t.y), all: sel.map((t) => t.all) };
+  }
+
+  function selectMarkersInBox(z: number, ax: number, ay: number, bx: number, by: number) {
+    const data = inputs.current.spawns;
+    if (!data) return;
+    const minX = Math.min(ax, bx);
+    const maxX = Math.max(ax, bx);
+    const minY = Math.min(ay, by);
+    const maxY = Math.max(ay, by);
+    const areas = data.areasByZ.get(z);
+    if (areas) {
+      for (const a of areas) {
+        if (a.x >= minX && a.x <= maxX && a.y >= minY && a.y <= maxY) selection.addSpawn({ x: a.x, y: a.y, z });
+      }
+    }
+    const minCx = Math.floor(minX / CHUNK);
+    const maxCx = Math.floor(maxX / CHUNK);
+    const minCy = Math.floor(minY / CHUNK);
+    const maxCy = Math.floor(maxY / CHUNK);
+    for (let cy = minCy; cy <= maxCy; cy++) {
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        const arr = data.byChunk.get(`${z},${cx},${cy}`);
+        if (!arr) continue;
+        for (const c of arr) {
+          if (c.x >= minX && c.x <= maxX && c.y >= minY && c.y <= maxY) selection.addCreature({ x: c.x, y: c.y, z });
+        }
+      }
+    }
+  }
+
+  function selectedMarkers() {
+    const creatures = [...selection.creatures.current.values()];
+    if (selection.creature.current) creatures.push(selection.creature.current);
+    const spawns = [...selection.spawns.current.values()];
+    if (selection.spawn.current) spawns.push(selection.spawn.current);
+    return { creatures, spawns };
   }
 
   function copySelected(silent = false): Promise<number> {
@@ -749,7 +832,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       if (!silent) emit('Nothing to copy');
       return Promise.resolve(0);
     }
-    return copySelection(inputs.current.map.id, s.z, s.xs, s.ys, s.all)
+    return copySelection(inputs.current.map.id, s.zs, s.xs, s.ys, s.all)
       .then((n) => {
         clipboardCount.current = n;
         if (!silent) emit(`Copied ${plural(n, 'tile')}`);
@@ -781,7 +864,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     const count = clipboardCount.current;
     recordItemEdit();
     pasteSelection(inputs.current.map.id, pos.x, pos.y, pos.z)
-      .then((touched) => refetchKeysNow(touched, pos.z))
+      .then((touched) => refetchTagged(touched))
       .then(() => {
         atlas.version.current++;
         emit(`Pasted ${plural(count, 'tile')}`);
@@ -845,6 +928,12 @@ export function useMapInteraction(deps: InteractionDeps) {
         emit('Undo');
         return;
       }
+      if (e.kind === 'selection') {
+        redoTimeline.current.push(e);
+        selection.restore(e.before);
+        emit('Undo');
+        return;
+      }
       try {
         const touched = await undoEdit(inputs.current.map.id);
         if (touched.length > 0) {
@@ -874,6 +963,12 @@ export function useMapInteraction(deps: InteractionDeps) {
       if (e.kind === 'waypoint') {
         undoTimeline.current.push(e);
         inputs.current.onEditWaypoints(e.after);
+        emit('Redo');
+        return;
+      }
+      if (e.kind === 'selection') {
+        undoTimeline.current.push(e);
+        selection.restore(e.after);
         emit('Redo');
         return;
       }
@@ -986,13 +1081,15 @@ export function useMapInteraction(deps: InteractionDeps) {
     }
 
     const pos = tileAt(e);
+    const beforeSel = selection.snapshot();
     if (selectByPriority(pos)) {
       beginMarkerDrag(e, pos);
     } else {
-      selection.selectTile(pos, false);
+      if (!selection.entries.current.has(`${pos.z},${pos.x},${pos.y}`)) selection.selectTile(pos, false);
       scene.moveDest.current = pos;
       scene.moveDrag.current = { from: pos, startX: e.clientX, startY: e.clientY, active: false };
     }
+    recordSelection(beforeSel);
     inputs.current.onSelect(toSelected(hoverAt(pos)));
   }
 
@@ -1063,7 +1160,19 @@ export function useMapInteraction(deps: InteractionDeps) {
         recordItemEdit();
         housePaintBox(bs, !bs.additive);
       } else {
-        selection.selectBox(bs.startTile.z, bs.startTile.x, bs.startTile.y, bs.curTile.x, bs.curTile.y, bs.additive);
+        const beforeSel = selection.snapshot();
+        const boxes = selectionFloorBoxes(
+          bs.startTile.z,
+          inputs.current.selectionMode,
+          inputs.current.compensateSelection,
+          bs.startTile.x,
+          bs.startTile.y,
+          bs.curTile.x,
+          bs.curTile.y
+        );
+        boxes.forEach((b, i) => selection.selectBox(b.z, b.ax, b.ay, b.bx, b.by, bs.additive || i > 0));
+        for (const b of boxes) selectMarkersInBox(b.z, b.ax, b.ay, b.bx, b.by);
+        recordSelection(beforeSel);
         inputs.current.onSelect(toSelected(hoverAt(bs.curTile)));
       }
     }
@@ -1112,7 +1221,9 @@ export function useMapInteraction(deps: InteractionDeps) {
     if (inputs.current.activeTool !== 'select') inputs.current.onToolChange('select');
     const tile = tileAt(e);
     const info = hoverAt(tile);
+    const beforeSel = selection.snapshot();
     if (!selectByPriority(tile)) selection.selectTile(tile, false);
+    recordSelection(beforeSel);
     inputs.current.onSelect(toSelected(info));
     inputs.current.onHover(info);
     const dest = inputs.current.map.teleports.get(`${tile.x},${tile.y},${tile.z}`) ?? null;
@@ -1143,6 +1254,8 @@ export function useMapInteraction(deps: InteractionDeps) {
       houseId,
       hasSelection:
         selection.entries.current.size > 0 ||
+        selection.spawns.current.size > 0 ||
+        selection.creatures.current.size > 0 ||
         !!selection.spawn.current ||
         !!selection.creature.current ||
         !!selection.waypoint.current,

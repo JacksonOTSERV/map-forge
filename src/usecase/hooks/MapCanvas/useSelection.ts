@@ -11,17 +11,45 @@ export interface BoxSelection {
   additive: boolean;
 }
 
+export interface SelectionSnapshot {
+  entries: SelTile[];
+  spawn: Position | null;
+  creature: Position | null;
+  waypoint: Position | null;
+  spawns: Position[];
+  creatures: Position[];
+}
+
+const markerSig = (p: Position | null) => (p ? `${p.z},${p.x},${p.y}` : '-');
+
+export function selectionSig(s: SelectionSnapshot): string {
+  const e = s.entries
+    .map((t) => `${t.z},${t.x},${t.y},${t.all ? 1 : 0}`)
+    .sort()
+    .join('|');
+  const sp = s.spawns.map(markerSig).sort().join('|');
+  const cr = s.creatures.map(markerSig).sort().join('|');
+  return `${e}#${sp}#${cr}#${markerSig(s.spawn)}#${markerSig(s.creature)}#${markerSig(s.waypoint)}`;
+}
+
 export interface Selection {
   entries: React.MutableRefObject<Map<string, SelTile>>;
   box: React.MutableRefObject<BoxSelection | null>;
   spawn: React.MutableRefObject<Position | null>;
   creature: React.MutableRefObject<Position | null>;
   waypoint: React.MutableRefObject<Position | null>;
+  spawns: React.MutableRefObject<Map<string, Position>>;
+  creatures: React.MutableRefObject<Map<string, Position>>;
   selectTile: (pos: Position, all: boolean) => void;
   selectSpawn: (pos: Position | null) => void;
   selectCreature: (pos: Position | null) => void;
   selectWaypoint: (pos: Position | null) => void;
   selectBox: (z: number, ax: number, ay: number, bx: number, by: number, additive: boolean) => void;
+  addSpawn: (pos: Position) => void;
+  addCreature: (pos: Position) => void;
+  setTiles: (list: SelTile[]) => void;
+  snapshot: () => SelectionSnapshot;
+  restore: (s: SelectionSnapshot) => void;
   clear: () => void;
 }
 
@@ -31,6 +59,8 @@ export function useSelection(meshes: ChunkMeshCache): Selection {
   const spawn = React.useRef<Position | null>(null);
   const creature = React.useRef<Position | null>(null);
   const waypoint = React.useRef<Position | null>(null);
+  const spawns = React.useRef(new Map<string, Position>());
+  const creatures = React.useRef(new Map<string, Position>());
 
   function selectMarker(ref: React.MutableRefObject<Position | null>, pos: Position | null) {
     const prev = ref.current;
@@ -57,9 +87,23 @@ export function useSelection(meshes: ChunkMeshCache): Selection {
     selectSpawn(null);
     selectCreature(null);
     selectWaypoint(null);
+    for (const pos of spawns.current.values()) meshes.discardAt(pos.x, pos.y, pos.z);
+    for (const pos of creatures.current.values()) meshes.discardAt(pos.x, pos.y, pos.z);
+    spawns.current.clear();
+    creatures.current.clear();
     if (entries.current.size === 0) return;
     meshes.discardTiles(entries.current.values());
     entries.current.clear();
+  }
+
+  function addSpawn(pos: Position) {
+    spawns.current.set(`${pos.z},${pos.x},${pos.y}`, pos);
+    meshes.discardAt(pos.x, pos.y, pos.z);
+  }
+
+  function addCreature(pos: Position) {
+    creatures.current.set(`${pos.z},${pos.x},${pos.y}`, pos);
+    meshes.discardAt(pos.x, pos.y, pos.z);
   }
 
   function selectTile(pos: Position, all: boolean) {
@@ -85,17 +129,55 @@ export function useSelection(meshes: ChunkMeshCache): Selection {
     meshes.discardTiles(added);
   }
 
+  function setTiles(list: SelTile[]) {
+    if (entries.current.size > 0) {
+      meshes.discardTiles(entries.current.values());
+      entries.current.clear();
+    }
+    for (const t of list) entries.current.set(`${t.z},${t.x},${t.y}`, t);
+    meshes.discardTiles(list);
+  }
+
+  function snapshot(): SelectionSnapshot {
+    return {
+      entries: Array.from(entries.current.values()).map((t) => ({ ...t })),
+      spawn: spawn.current ? { ...spawn.current } : null,
+      creature: creature.current ? { ...creature.current } : null,
+      waypoint: waypoint.current ? { ...waypoint.current } : null,
+      spawns: Array.from(spawns.current.values()).map((p) => ({ ...p })),
+      creatures: Array.from(creatures.current.values()).map((p) => ({ ...p }))
+    };
+  }
+
+  function restore(s: SelectionSnapshot) {
+    clear();
+    for (const t of s.entries) entries.current.set(`${t.z},${t.x},${t.y}`, t);
+    meshes.discardTiles(s.entries);
+    for (const p of s.spawns) addSpawn(p);
+    for (const p of s.creatures) addCreature(p);
+    selectSpawn(s.spawn);
+    selectCreature(s.creature);
+    selectWaypoint(s.waypoint);
+  }
+
   return {
     entries,
     box,
     spawn,
     creature,
     waypoint,
+    spawns,
+    creatures,
     selectTile,
     selectSpawn,
     selectCreature,
     selectWaypoint,
     selectBox,
+    addSpawn,
+    addCreature,
+    setTiles,
+    snapshot,
+    restore,
     clear
   };
 }
