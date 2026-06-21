@@ -235,7 +235,7 @@ export function useMapRenderer(deps: RendererDeps) {
   }
 
   function buildChunkMesh(cx: number, cy: number, z: number, missing: Set<number>) {
-    const { items, outfits, spawns, showSpawns, showCreatures, showHouses, zoneVisibility } = inputs.current;
+    const { items, outfits, spawns, showSpawns, showCreatures, showHouses, showBlocking, zoneVisibility } = inputs.current;
     const selHouse = inputs.current.activeHouseId;
     let exitMap: Map<number, number> | null = null;
     if (showHouses) {
@@ -298,7 +298,17 @@ export function useMapRenderer(deps: RendererDeps) {
         const houseBit = showHouses && ct.houseIds[i] ? (ct.houseIds[i] === selHouse ? 1024 : 256) : 0;
         const exitHouse = exitMap?.get(tx * 65536 + ty);
         const exitBit = exitHouse != null ? (exitHouse === selHouse ? 1024 : 512) : 0;
-        const zoneBits = (ct.flags[i] ? visibleZoneBits(ct.flags[i], zoneVisibility) : 0) | houseBit | exitBit;
+        let blockBit = 0;
+        if (showBlocking) {
+          for (let ii = ct.itemOffset[i]; ii < end; ii++) {
+            const t = items.get(ct.clientIds[ii]);
+            if (t && t.isUnpassable) {
+              blockBit = 2048;
+              break;
+            }
+          }
+        }
+        const zoneBits = (ct.flags[i] ? visibleZoneBits(ct.flags[i], zoneVisibility) : 0) | houseBit | exitBit | blockBit;
         let drawElevation = 0;
         for (let ii = ct.itemOffset[i]; ii < end; ii++) {
           const thing = items.get(ct.clientIds[ii]);

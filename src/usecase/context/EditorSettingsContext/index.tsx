@@ -19,6 +19,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
   const [showCreatures, setShowCreatures] = useSetting('showCreatures', true);
   const [showWaypoints, setShowWaypoints] = useSetting('showWaypoints', true);
   const [showHouses, setShowHouses] = useSetting('showHouses', true);
+  const [showBlocking, setShowBlocking] = useSetting('showBlocking', false);
   const [showTooltips, setShowTooltips] = useSetting('showTooltips', true);
   const [tooltipTypes, setTooltipTypes] = useSetting<TooltipTypes>('tooltipTypes', DEFAULT_TOOLTIP_TYPES, {
     revive: reviveTooltipTypes
@@ -55,6 +56,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
   const toggleCreatures = React.useCallback(() => setShowCreatures((v) => !v), [setShowCreatures]);
   const toggleWaypoints = React.useCallback(() => setShowWaypoints((v) => !v), [setShowWaypoints]);
   const toggleHouses = React.useCallback(() => setShowHouses((v) => !v), [setShowHouses]);
+  const toggleBlocking = React.useCallback(() => setShowBlocking((v) => !v), [setShowBlocking]);
   const toggleTooltips = React.useCallback(() => setShowTooltips((v) => !v), [setShowTooltips]);
   const toggleTooltipType = React.useCallback(
     (key: TooltipTypeKey) => setTooltipTypes((v) => ({ ...v, [key]: !v[key] })),
@@ -87,6 +89,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       showCreatures,
       showWaypoints,
       showHouses,
+      showBlocking,
       showTooltips,
       tooltipTypes,
       showRenderStats,
@@ -103,6 +106,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       toggleCreatures,
       toggleWaypoints,
       toggleHouses,
+      toggleBlocking,
       toggleTooltips,
       toggleTooltipType,
       toggleTooltipTypes,
@@ -116,6 +120,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       showCreatures,
       showWaypoints,
       showHouses,
+      showBlocking,
       showTooltips,
       tooltipTypes,
       showRenderStats,
@@ -132,6 +137,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       toggleCreatures,
       toggleWaypoints,
       toggleHouses,
+      toggleBlocking,
       toggleTooltips,
       toggleTooltipType,
       toggleTooltipTypes,

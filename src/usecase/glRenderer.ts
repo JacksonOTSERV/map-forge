@@ -91,6 +91,7 @@ void main() {
 	if ((zf & 16) != 0) { col.g = col.r * 0.25; col.b *= 0.66796875; }
 	if ((zf & 8) != 0) { col.b *= 0.5; }
 	if ((zf & 4) != 0) { col.g *= 0.5; }
+	if ((zf & 2048) != 0) { col.r = min(col.r * 1.4 + 0.18, 1.0); col.g *= 0.55; col.b *= 0.55; }
 	frag = vec4(mix(col, vec3(0.0), vTint * 0.45), c.a);
 }`;
 }

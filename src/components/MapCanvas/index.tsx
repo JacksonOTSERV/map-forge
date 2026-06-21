@@ -71,6 +71,7 @@ const MapCanvas = (props: MapCanvasProps) => {
     showCreatures: settings.showCreatures,
     showWaypoints: settings.showWaypoints,
     showHouses: settings.showHouses,
+    showBlocking: settings.showBlocking,
     showTooltips: settings.showTooltips,
     tooltipTypes: settings.tooltipTypes,
     automagic: settings.automagic,
@@ -214,6 +215,7 @@ const MapCanvas = (props: MapCanvasProps) => {
     settings.showCreatures,
     settings.showWaypoints,
     settings.showHouses,
+    settings.showBlocking,
     settings.zoneVisibility
   ]);
 

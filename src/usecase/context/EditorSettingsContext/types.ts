@@ -9,6 +9,7 @@ export interface EditorSettingsValue {
   showCreatures: boolean;
   showWaypoints: boolean;
   showHouses: boolean;
+  showBlocking: boolean;
   showTooltips: boolean;
   tooltipTypes: TooltipTypes;
   showRenderStats: boolean;
@@ -25,6 +26,7 @@ export interface EditorSettingsValue {
   toggleCreatures: () => void;
   toggleWaypoints: () => void;
   toggleHouses: () => void;
+  toggleBlocking: () => void;
   toggleTooltips: () => void;
   toggleTooltipType: (key: TooltipTypeKey) => void;
   toggleTooltipTypes: (keys: TooltipTypeKey[]) => void;

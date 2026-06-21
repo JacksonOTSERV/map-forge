@@ -76,6 +76,8 @@ const AppMenu = ({
     setAllZones,
     showRenderStats,
     toggleRenderStats,
+    showBlocking,
+    toggleBlocking,
     showTooltips,
     toggleTooltips,
     tooltipTypes,
@@ -201,6 +203,10 @@ const AppMenu = ({
           <MenubarItem onSelect={(e) => e.preventDefault()} onClick={() => setAllZones(!anyZoneVisible)}>
             {anyZoneVisible ? 'Hide all zones' : 'Show all zones'}
           </MenubarItem>
+          <MenubarSeparator />
+          <MenubarCheckboxItem checked={showBlocking} onCheckedChange={toggleBlocking} onSelect={(e) => e.preventDefault()}>
+            Show blocking
+          </MenubarCheckboxItem>
           <MenubarSeparator />
           <MenubarCheckboxItem checked={showTooltips} onCheckedChange={toggleTooltips} onSelect={(e) => e.preventDefault()}>
             Show tooltips
