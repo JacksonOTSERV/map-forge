@@ -886,6 +886,7 @@ pub fn delete_item(
 	x: u16,
 	y: u16,
 	automagic: bool,
+	ground_only: bool,
 	otb_state: tauri::State<OtbState>,
 	map_state: tauri::State<MapState>,
 	materials_state: tauri::State<MaterialsState>,
@@ -908,7 +909,11 @@ pub fn delete_item(
 	let (g, b) = (crate::scripting::ground_class(), crate::scripting::border_class());
 	stack.retain(|&(c, s)| {
 		let cl = order_class(&place, mats, c, s);
-		cl == g || cl == b
+		if ground_only {
+			cl != g
+		} else {
+			cl == g || cl == b
+		}
 	});
 	let removed_any = stack.len() != before;
 
@@ -975,6 +980,7 @@ pub fn erase_area(
 	x1: u16,
 	y1: u16,
 	automagic: bool,
+	ground_only: bool,
 	otb_state: tauri::State<OtbState>,
 	map_state: tauri::State<MapState>,
 	materials_state: tauri::State<MaterialsState>,
@@ -995,7 +1001,11 @@ pub fn erase_area(
 	let (g, b) = (crate::scripting::ground_class(), crate::scripting::border_class());
 	let kept = |c: u16, s: u16| {
 		let cl = order_class(&place, mats, c, s);
-		cl == g || cl == b
+		if ground_only {
+			cl != g
+		} else {
+			cl == g || cl == b
+		}
 	};
 	let in_rect = |x: u16, y: u16| x >= min_x && x <= max_x && y >= min_y && y <= max_y;
 
@@ -1377,6 +1387,30 @@ mod tests {
 		assert!(result.iter().any(|&(_, s)| s == 4526), "ground stays");
 		assert!(result.iter().any(|&(_, s)| s == border_server), "border stays");
 		assert!(!result.contains(&item), "placed item removed");
+	}
+
+	#[test]
+	fn ground_only_eraser_drops_ground_keeps_rest() {
+		let otb = parse_otb(&fs::read(format!("{}/items.otb", DATA)).unwrap()).unwrap();
+		let mats = load_materials();
+		let grass = otb.client_id(4526).unwrap_or(0);
+		let mut place = HashMap::new();
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+
+		let border_server = *mats.border_item_ids.iter().next().expect("a border item exists");
+		let border_client = otb.client_id(border_server).unwrap_or(0);
+		let item = (0u16, 1u16);
+
+		let g = GROUND_CLASS;
+		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
+		let stack = tile_stack_mut(&mut m, 7, 10, 10);
+		*stack = vec![(grass, 4526), (border_client, border_server), item];
+		stack.retain(|&(c, s)| order_class(&place, Some(&mats), c, s) != g);
+
+		let result = stack_at(&m, 7, 10, 10);
+		assert!(!result.iter().any(|&(_, s)| s == 4526), "ground removed");
+		assert!(result.iter().any(|&(_, s)| s == border_server), "border stays");
+		assert!(result.contains(&item), "placed item stays");
 	}
 
 	#[test]

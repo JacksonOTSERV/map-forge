@@ -1,14 +1,14 @@
 import React from 'react';
 
-import { ToolId } from '~/domain/tools';
-import { ThingType } from '~/domain/tibia';
 import { Thing } from '~/domain/thing';
+import { ThingType } from '~/domain/tibia';
 import { MapHouses } from '~/domain/house';
 import { MapSpawns } from '~/domain/creature';
 import { ZoneVisibility } from '~/domain/zones';
 import { SelectionMode } from '~/usecase/floors';
 import { TooltipTypes } from '~/domain/tooltips';
 import { MapWaypoints } from '~/domain/waypoint';
+import { ToolId, EraserMode } from '~/domain/tools';
 import { MapView, MapMeta, Position } from '~/domain/map';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
 
@@ -145,6 +145,7 @@ export interface MapCanvasContextInputs {
   autoCreateSpawn: boolean;
   copyPositionFormat: string;
   activeTool: ToolId;
+  eraserMode: EraserMode;
   activeBrush: ActiveBrush | null;
   activeHouseId: number | null;
   onToolChange: (tool: ToolId) => void;

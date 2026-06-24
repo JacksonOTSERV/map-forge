@@ -554,7 +554,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     const y0 = Math.min(bs.startTile.y, bs.curTile.y);
     const x1 = Math.max(bs.startTile.x, bs.curTile.x);
     const y1 = Math.max(bs.startTile.y, bs.curTile.y);
-    eraseArea(inputs.current.map.id, z, x0, y0, x1, y1, inputs.current.automagic)
+    eraseArea(inputs.current.map.id, z, x0, y0, x1, y1, inputs.current.automagic, inputs.current.eraserMode === 'ground')
       .then((touched) => refetchKeysNow(touched, z))
       .catch((err) => console.error('Failed to erase box', err));
   }
@@ -588,7 +588,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     const key = `${pos.x},${pos.y},${pos.z}`;
     if (key === scene.lastPaintKey.current) return;
     scene.lastPaintKey.current = key;
-    deleteItem(inputs.current.map.id, pos.z, pos.x, pos.y, inputs.current.automagic)
+    deleteItem(inputs.current.map.id, pos.z, pos.x, pos.y, inputs.current.automagic, inputs.current.eraserMode === 'ground')
       .then((touched) => {
         if (touched.length === 0) tiles.queueRefetch(pos.x, pos.y, pos.z);
         for (const key of touched) tiles.queueRefetch((key >>> 16) * CHUNK, (key & 0xffff) * CHUNK, pos.z);

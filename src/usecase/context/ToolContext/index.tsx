@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { ToolId } from '~/domain/tools';
+import { ToolId, EraserMode } from '~/domain/tools';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
 
 import { PaletteReveal, ToolContextValue, ToolProviderProps, PaletteCategorySignal } from './types';
@@ -12,6 +12,7 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
   const [activeBrush, setActiveBrush] = React.useState<ActiveBrush | null>(null);
   const [activeHouseId, setActiveHouse] = React.useState<number | null>(null);
   const [ctrlErase, setCtrlErase] = React.useState(false);
+  const [eraserMode, setEraserMode] = React.useState<EraserMode>('items');
   const [reveal, setReveal] = React.useState<PaletteReveal | null>(null);
   const [paletteCategory, setPaletteCategoryState] = React.useState<PaletteCategorySignal | null>(null);
 
@@ -53,11 +54,13 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       activeBrush,
       activeHouseId,
       ctrlErase,
+      eraserMode,
       reveal,
       paletteCategory,
       setActiveTool,
       selectBrush,
       setActiveHouse,
+      setEraserMode,
       revealInPalette,
       setPaletteCategory
     }),
@@ -66,11 +69,13 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       activeBrush,
       activeHouseId,
       ctrlErase,
+      eraserMode,
       reveal,
       paletteCategory,
       setActiveTool,
       selectBrush,
       setActiveHouse,
+      setEraserMode,
       revealInPalette,
       setPaletteCategory
     ]

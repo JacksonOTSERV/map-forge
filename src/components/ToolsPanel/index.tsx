@@ -1,5 +1,5 @@
-import { ComponentType } from 'react';
-import { Brush, Eraser, Crosshair, MousePointer2, GripHorizontal } from 'lucide-react';
+import { useRef, useState, ComponentType } from 'react';
+import { Brush, Check, Eraser, Layers2, Crosshair, MousePointer2, GripHorizontal } from 'lucide-react';
 import {
   IconHome,
   IconFlag3,
@@ -18,8 +18,8 @@ import { cn } from '~/usecase/classNames';
 import { Hint } from '~/components/commons/ui/tooltip';
 import { useTool } from '~/usecase/context/ToolContext';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
-import { TOOLS, ToolId, isZoneTool, isHouseTool } from '~/domain/tools';
 import { useEditorSettings } from '~/usecase/context/EditorSettingsContext';
+import { TOOLS, ToolId, EraserMode, isZoneTool, isHouseTool, ERASER_MODES } from '~/domain/tools';
 
 const ICONS: Record<ToolId, ComponentType<{ className?: string }>> = {
   select: MousePointer2,
@@ -34,12 +34,119 @@ const ICONS: Record<ToolId, ComponentType<{ className?: string }>> = {
   house_exit: IconDoorExit
 };
 
+const ERASER_MODE_ICONS: Record<EraserMode, ComponentType<{ className?: string }>> = {
+  items: Eraser,
+  ground: Layers2
+};
+
+interface EraserToolProps {
+  selected: boolean;
+  mode: EraserMode;
+  onActivate: () => void;
+  onPickMode: (mode: EraserMode) => void;
+}
+
+const EraserTool = ({ selected, mode, onActivate, onPickMode }: EraserToolProps) => {
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const holdTimer = useRef<number | undefined>(undefined);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const Icon = ERASER_MODE_ICONS[mode];
+
+  const open = (e?: { currentTarget: HTMLButtonElement }) => {
+    const el = e?.currentTarget ?? btnRef.current;
+    const r = el?.getBoundingClientRect();
+    if (r) setAnchor({ top: r.top, left: r.right + 4 });
+  };
+
+  const cancelHold = () => {
+    if (holdTimer.current !== undefined) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = undefined;
+    }
+  };
+
+  const onPointerDown = () => {
+    holdTimer.current = window.setTimeout(() => {
+      holdTimer.current = undefined;
+      open();
+    }, 250);
+  };
+
+  const onPointerUp = () => {
+    if (holdTimer.current !== undefined) {
+      cancelHold();
+      onActivate();
+    }
+  };
+
+  const pick = (next: EraserMode) => {
+    onPickMode(next);
+    setAnchor(null);
+  };
+
+  return (
+    <div className="relative flex w-full flex-col items-center">
+      <Hint side="right" label={ERASER_MODES.find((m) => m.id === mode)?.label ?? 'Eraser'}>
+        <button
+          ref={btnRef}
+          onPointerUp={onPointerUp}
+          onPointerLeave={cancelHold}
+          onPointerDown={onPointerDown}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            cancelHold();
+            open(e);
+          }}
+          className={cn(
+            'relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+            selected ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+          )}
+        >
+          <Icon className="h-[18px] w-[18px]" />
+          <span className="absolute bottom-0.5 right-0.5 h-0 w-0 border-b-[4px] border-l-[4px] border-b-current border-l-transparent opacity-70" />
+        </button>
+      </Hint>
+
+      {anchor && (
+        <>
+          <div className="fixed inset-0 z-40" onMouseDown={() => setAnchor(null)} />
+          <div
+            style={{ top: anchor.top, left: anchor.left }}
+            className="fixed z-50 min-w-44 rounded-md border border-border bg-popover p-1 shadow-island"
+          >
+            {ERASER_MODES.map((m) => {
+              const ModeIcon = ERASER_MODE_ICONS[m.id];
+              return (
+                <button
+                  key={m.id}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    pick(m.id);
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-item-hover',
+                    m.id === mode ? 'text-foreground' : 'text-muted-foreground'
+                  )}
+                >
+                  <ModeIcon className="h-4 w-4 flex-shrink-0" />
+                  <span className="flex-1">{m.label}</span>
+                  {m.id === mode && <Check className="h-3.5 w-3.5 flex-shrink-0 text-primary" />}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 interface ToolsPanelProps {
   dragHandle?: DragHandleProps;
 }
 
 const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
-  const { activeTool, setActiveTool, ctrlErase } = useTool();
+  const { activeTool, setActiveTool, ctrlErase, eraserMode, setEraserMode } = useTool();
 
   const erasing = ctrlErase && (activeTool === 'brush' || isHouseTool(activeTool) || isZoneTool(activeTool));
   const isSelected = (id: ToolId) => {
@@ -76,6 +183,20 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
       {TOOLS.map((tool) => {
         const Icon = ICONS[tool.id];
         const selected = isSelected(tool.id);
+        if (tool.id === 'eraser') {
+          return (
+            <EraserTool
+              key={tool.id}
+              mode={eraserMode}
+              selected={selected}
+              onActivate={() => setActiveTool('eraser')}
+              onPickMode={(mode) => {
+                setEraserMode(mode);
+                setActiveTool('eraser');
+              }}
+            />
+          );
+        }
         return (
           <div key={tool.id} className="flex w-full flex-col items-center">
             {tool.id === 'zone_pz' && <div className="my-1 h-px w-5 bg-border/60" />}

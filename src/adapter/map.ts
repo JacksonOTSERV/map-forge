@@ -186,8 +186,15 @@ export async function houseSizes(mapId: number): Promise<Record<number, number>>
   return invoke<Record<number, number>>('house_sizes', { mapId });
 }
 
-export async function deleteItem(mapId: number, z: number, x: number, y: number, automagic: boolean): Promise<number[]> {
-  return invoke<number[]>('delete_item', { mapId, z, x, y, automagic });
+export async function deleteItem(
+  mapId: number,
+  z: number,
+  x: number,
+  y: number,
+  automagic: boolean,
+  groundOnly: boolean
+): Promise<number[]> {
+  return invoke<number[]>('delete_item', { mapId, z, x, y, automagic, groundOnly });
 }
 
 export async function eraseBrush(
@@ -208,9 +215,10 @@ export async function eraseArea(
   y0: number,
   x1: number,
   y1: number,
-  automagic: boolean
+  automagic: boolean,
+  groundOnly: boolean
 ): Promise<number[]> {
-  return invoke<number[]>('erase_area', { mapId, z, x0, y0, x1, y1, automagic });
+  return invoke<number[]>('erase_area', { mapId, z, x0, y0, x1, y1, automagic, groundOnly });
 }
 
 export async function deleteSelection(

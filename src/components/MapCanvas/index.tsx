@@ -83,6 +83,7 @@ const MapCanvas = (props: MapCanvasProps) => {
     autoCreateSpawn: settings.autoCreateSpawn,
     copyPositionFormat: settings.copyPositionFormat,
     activeTool: tool.activeTool,
+    eraserMode: tool.eraserMode,
     activeBrush: tool.activeBrush,
     activeHouseId: tool.activeHouseId,
     onToolChange: tool.setActiveTool,

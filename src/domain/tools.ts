@@ -20,6 +20,18 @@ export const TOOLS: ToolMeta[] = [
   { id: 'zone_pvp', label: 'PVP zone (Ctrl-drag to erase)' }
 ];
 
+export type EraserMode = 'items' | 'ground';
+
+export interface EraserModeMeta {
+  id: EraserMode;
+  label: string;
+}
+
+export const ERASER_MODES: EraserModeMeta[] = [
+  { id: 'items', label: 'Erase items (keep ground)' },
+  { id: 'ground', label: 'Erase ground only' }
+];
+
 export const isZoneTool = (id: ToolId): id is ZoneToolId => id.startsWith('zone_');
 
 export const isHouseTool = (id: ToolId): id is HouseToolId => id === 'house' || id === 'house_exit';

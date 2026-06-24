@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { ToolId } from '~/domain/tools';
+import { ToolId, EraserMode } from '~/domain/tools';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
 
 export interface PaletteReveal {
@@ -20,11 +20,13 @@ export interface ToolContextValue {
   activeBrush: ActiveBrush | null;
   activeHouseId: number | null;
   ctrlErase: boolean;
+  eraserMode: EraserMode;
   reveal: PaletteReveal | null;
   paletteCategory: PaletteCategorySignal | null;
   setActiveTool: (tool: ToolId) => void;
   selectBrush: (brush: ActiveBrush | null) => void;
   setActiveHouse: (id: number | null) => void;
+  setEraserMode: (mode: EraserMode) => void;
   revealInPalette: (category: PaletteCategoryId, serverId: number, name?: string) => void;
   setPaletteCategory: (category: PaletteCategoryId) => void;
 }
