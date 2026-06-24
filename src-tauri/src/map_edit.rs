@@ -448,7 +448,8 @@ pub fn paint_tiles(
 	}
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty_otb = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty_otb);
 	let client_id = otb.client_id(server_id).unwrap_or(0);
 
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -487,7 +488,8 @@ pub fn paint_zone(
 	}
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -540,7 +542,8 @@ pub fn set_house(
 	}
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -607,7 +610,8 @@ pub fn house_sizes(
 	map_state: tauri::State<MapState>,
 ) -> Result<HashMap<u32, u32>, String> {
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
 
@@ -672,7 +676,8 @@ pub fn preview_paint(
 	}
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty_otb = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty_otb);
 	let client_id = otb.client_id(server_id).unwrap_or(0);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let Some(mats) = materials_guard.as_ref() else {
@@ -747,7 +752,8 @@ pub fn move_item(
 		return Ok(Vec::new());
 	}
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -797,7 +803,8 @@ pub fn move_selection(
 	}
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -885,7 +892,8 @@ pub fn delete_item(
 	placement_state: tauri::State<PlacementState>,
 ) -> Result<Vec<u32>, String> {
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -930,7 +938,8 @@ pub fn erase_brush(
 	placement_state: tauri::State<PlacementState>,
 ) -> Result<Vec<u32>, String> {
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -972,7 +981,8 @@ pub fn erase_area(
 	placement_state: tauri::State<PlacementState>,
 ) -> Result<Vec<u32>, String> {
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -1061,7 +1071,8 @@ pub fn delete_selection(
 	}
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -1123,7 +1134,8 @@ pub fn copy_selection(
 	}
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
 
@@ -1173,7 +1185,8 @@ pub fn paste_selection(
 	};
 
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let mats = materials_guard.as_ref();
 	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;

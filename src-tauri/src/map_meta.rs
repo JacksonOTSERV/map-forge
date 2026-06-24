@@ -119,7 +119,8 @@ pub fn map_statistics(
 	map_state: tauri::State<MapState>,
 ) -> Result<MapStatistics, String> {
 	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-	let otb = otb_guard.as_ref().ok_or("items.otb not loaded")?;
+	let empty = crate::formats::tibia::otb::OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty);
 	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
 	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
 
