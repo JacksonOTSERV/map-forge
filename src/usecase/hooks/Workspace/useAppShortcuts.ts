@@ -12,6 +12,7 @@ interface ShortcutActions {
   toggleMinimap: () => void;
   openMapProperties: () => void;
   openMapStatistics: () => void;
+  refreshAssets: () => void;
 }
 
 export const useAppShortcuts = (actions: ShortcutActions) => {
@@ -65,6 +66,9 @@ export const useAppShortcuts = (actions: ShortcutActions) => {
       } else if (e.key === 'F8') {
         e.preventDefault();
         ref.current.openMapStatistics();
+      } else if (e.key === 'F5') {
+        e.preventDefault();
+        ref.current.refreshAssets();
       }
     };
     window.addEventListener('keydown', onKey);

@@ -352,7 +352,8 @@ const App = () => {
     openEditTowns,
     openMapProperties,
     openMapStatistics,
-    openPreferences: () => openPreferences()
+    openPreferences: () => openPreferences(),
+    refreshAssets: retryAssets
   });
 
   savingRef.current = !!saving;
