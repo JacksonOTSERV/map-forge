@@ -9,7 +9,9 @@ import { mapClientIds } from '~/adapter/assets';
 import { House, MapHouses } from '~/domain/house';
 import { Hint } from '~/components/commons/ui/tooltip';
 import { useTool } from '~/usecase/context/ToolContext';
+import { TILE } from '~/components/MapCanvas/constants';
 import { Waypoint, MapWaypoints } from '~/domain/waypoint';
+import { getSetting, setSetting } from '~/adapter/settings';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
 import { useAssetsBundle } from '~/usecase/context/AssetsContext';
 import { brushSpriteLayout, BrushSpriteLayout, resolveBrushThing } from '~/usecase/brushSprite';
@@ -21,8 +23,6 @@ import GeneratorView from './GeneratorView';
 import PaletteSearch from './PaletteSearch';
 import WaypointsList from './WaypointsList';
 import BrushThumbnail from './BrushThumbnail';
-
-import { TILE } from '~/components/MapCanvas/constants';
 
 const CELL_SIZE = TILE;
 
@@ -116,6 +116,7 @@ const PalettePanel = ({
   const pending = React.useRef<PendingReveal | null>(null);
 
   const [category, setCategory] = React.useState<PaletteCategoryId>('terrain');
+  const restoredRef = React.useRef(false);
   const [tilesetName, setTilesetName] = React.useState<string>('');
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
   const [tiles, setTiles] = React.useState<Tile[]>([]);
@@ -142,6 +143,22 @@ const PalettePanel = ({
     }
     return out;
   }, [query, tilesets, current]);
+
+  React.useEffect(() => {
+    getSetting<PaletteCategoryId | null>('paletteCategory', null)
+      .then((saved) => {
+        if (saved && PALETTE_CATEGORIES.some((c) => c.id === saved)) setCategory(saved);
+      })
+      .catch(() => void 0)
+      .finally(() => {
+        restoredRef.current = true;
+      });
+  }, []);
+
+  React.useEffect(() => {
+    if (!restoredRef.current) return;
+    setSetting('paletteCategory', category).catch(() => void 0);
+  }, [category]);
 
   React.useEffect(() => {
     if (pending.current?.category === category) return;
