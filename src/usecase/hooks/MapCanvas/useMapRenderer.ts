@@ -757,6 +757,30 @@ export function useMapRenderer(deps: RendererDeps) {
         }
       }
     }
+    const selEntries = selection.entries.current;
+    if (selEntries.size > 0) {
+      const voidTiles: number[] = [];
+      for (const t of selEntries.values()) {
+        if (t.z !== floorZ) continue;
+        const cx = Math.floor(t.x / CHUNK);
+        const cy = Math.floor(t.y / CHUNK);
+        const ct = tiles.data.current.get(`${floorZ},${cx},${cy}`) as ChunkTiles | null | undefined;
+        let occupied = false;
+        if (ct) {
+          for (let i = 0; i < ct.tileX.length; i++) {
+            if (ct.tileX[i] === t.x && ct.tileY[i] === t.y) {
+              occupied = ct.itemOffset[i + 1] > ct.itemOffset[i];
+              break;
+            }
+          }
+        }
+        if (!occupied) voidTiles.push(t.x * TILE, t.y * TILE);
+      }
+      if (voidTiles.length > 0) {
+        renderer.drawSelectionTiles(new Float32Array(voidTiles), camX, camY, scale, [0.231, 0.51, 0.965, 0.33]);
+      }
+    }
+
     const md = scene.moveDrag.current;
     if (md && md.active && scene.moveDest.current) {
       const ctx = { items: inputs.current.items, tiles, atlas };

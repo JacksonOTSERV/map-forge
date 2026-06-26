@@ -130,6 +130,31 @@ void main() {
 	frag = uColor;
 }`;
 
+function buildSelVertSrc(tile: number): string {
+  return `#version 300 es
+layout(location=0) in vec2 aCorner;
+layout(location=1) in vec2 aPos;
+uniform vec2 uCam;
+uniform float uScale;
+uniform vec2 uViewport;
+const float T = ${tile.toFixed(1)};
+void main() {
+	vec2 world = aPos + aCorner * T;
+	vec2 sp = (world - uCam) * uScale;
+	vec2 screen = floor(sp + 0.5);
+	vec2 clip = (screen / uViewport) * 2.0 - 1.0;
+	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+}`;
+}
+
+const SEL_FRAG_SRC = `#version 300 es
+precision mediump float;
+uniform vec4 uColor;
+out vec4 frag;
+void main() {
+	frag = uColor;
+}`;
+
 const FLOATS_PER_INSTANCE = 7;
 const INSTANCE_STRIDE = FLOATS_PER_INSTANCE * 4;
 
@@ -161,6 +186,13 @@ export class GLRenderer {
   private uDimColor: WebGLUniformLocation;
   private hlVao: WebGLVertexArrayObject;
   private hlBuffer: WebGLBuffer;
+  private selProgram: WebGLProgram;
+  private selVao: WebGLVertexArrayObject;
+  private selBuffer: WebGLBuffer;
+  private selCam: WebGLUniformLocation;
+  private selScale: WebGLUniformLocation;
+  private selViewport: WebGLUniformLocation;
+  private selColor: WebGLUniformLocation;
   private ghostProgram: WebGLProgram;
   private ghostCam: WebGLUniformLocation;
   private ghostScale: WebGLUniformLocation;
@@ -237,6 +269,24 @@ export class GLRenderer {
     gl.enableVertexAttribArray(4);
     gl.vertexAttribPointer(4, 1, gl.FLOAT, false, INSTANCE_STRIDE, 20);
     gl.vertexAttribDivisor(4, 1);
+    gl.bindVertexArray(null);
+
+    this.selProgram = this.link(buildSelVertSrc(tileSize), SEL_FRAG_SRC);
+    this.selCam = gl.getUniformLocation(this.selProgram, 'uCam')!;
+    this.selScale = gl.getUniformLocation(this.selProgram, 'uScale')!;
+    this.selViewport = gl.getUniformLocation(this.selProgram, 'uViewport')!;
+    this.selColor = gl.getUniformLocation(this.selProgram, 'uColor')!;
+    this.selVao = gl.createVertexArray()!;
+    this.selBuffer = gl.createBuffer()!;
+    gl.bindVertexArray(this.selVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.selBuffer);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 8, 0);
+    gl.vertexAttribDivisor(1, 1);
     gl.bindVertexArray(null);
 
     this.atlas = gl.createTexture()!;
@@ -375,6 +425,22 @@ export class GLRenderer {
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, data.length / FLOATS_PER_INSTANCE);
   }
 
+  drawSelectionTiles(data: Float32Array, camX: number, camY: number, scale: number, color: [number, number, number, number]) {
+    if (data.length === 0) return;
+    const gl = this.gl;
+    gl.useProgram(this.selProgram);
+    gl.bindVertexArray(this.selVao);
+    gl.uniform2f(this.selCam, camX, camY);
+    gl.uniform1f(this.selScale, scale);
+    gl.uniform2f(this.selViewport, this.bufW, this.bufH);
+    gl.uniform4f(this.selColor, color[0], color[1], color[2], color[3]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.selBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, data.length / 2);
+    gl.useProgram(this.program);
+    gl.bindVertexArray(this.vao);
+  }
+
   endFrame() {
     this.gl.bindVertexArray(null);
   }
@@ -386,11 +452,14 @@ export class GLRenderer {
     gl.deleteTexture(this.atlas);
     gl.deleteBuffer(this.quad);
     gl.deleteBuffer(this.hlBuffer);
+    gl.deleteBuffer(this.selBuffer);
     gl.deleteVertexArray(this.vao);
     gl.deleteVertexArray(this.dimVao);
     gl.deleteVertexArray(this.hlVao);
+    gl.deleteVertexArray(this.selVao);
     gl.deleteProgram(this.program);
     gl.deleteProgram(this.dimProgram);
     gl.deleteProgram(this.ghostProgram);
+    gl.deleteProgram(this.selProgram);
   }
 }
