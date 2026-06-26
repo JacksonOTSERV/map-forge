@@ -1,4 +1,4 @@
-import { GenPlan, GenLayer, ResolvedBiome, ResolvedLayer, GenerateOptions } from '~/domain/biome';
+import { GenPlan, GenLayer, ResolvedRef, ResolvedBiome, ResolvedLayer, GenerateOptions } from '~/domain/biome';
 
 import { fbm, hash01 } from './noise';
 
@@ -159,29 +159,55 @@ export function ensureConnected(region: Set<string>, blocked: Set<string>, onCle
   }
 }
 
-function buildTrail(region: Set<string>, seed: number): Set<string> {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let sumY = 0;
-  for (const k of region) {
-    const [x, y] = k.split(',').map(Number);
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    sumY += y;
+const BLOTCH_SCALE = 0.18;
+
+function blotchRefAt(biome: ResolvedBiome, x: number, y: number, seed: number): ResolvedRef | null {
+  for (let i = 0; i < biome.blotches.length; i++) {
+    const b = biome.blotches[i];
+    const threshold = 0.8 - Math.max(0, Math.min(1, b.intensity)) * 0.4;
+    const scale = BLOTCH_SCALE * (1 + (i % 3) * 0.25);
+    if (fbm(x * scale, y * scale, seed + 4242 + i * 1597, 2) > threshold) return b.ref;
   }
-  if (!Number.isFinite(minX) || maxX <= minX) return new Set();
-  const baseY = Math.round(sumY / region.size);
-  const amplitude = Math.max(2, Math.round((maxX - minX) / 8));
-  const trail = new Set<string>();
-  for (let x = minX; x <= maxX; x++) {
-    const offset = Math.round((fbm(x * 0.12, 0, seed + 4242) - 0.5) * 2 * amplitude);
-    const y = baseY + offset;
-    for (const ty of [y, y + 1]) {
-      const k = key(x, ty);
-      if (region.has(k)) trail.add(k);
+  return null;
+}
+
+const SQUARE_CORNERS = [
+  [0, 0],
+  [-1, 0],
+  [0, -1],
+  [-1, -1]
+];
+
+function inFullSquare(set: Set<string>, x: number, y: number): boolean {
+  for (const [ox, oy] of SQUARE_CORNERS) {
+    if (
+      set.has(key(x + ox, y + oy)) &&
+      set.has(key(x + ox + 1, y + oy)) &&
+      set.has(key(x + ox, y + oy + 1)) &&
+      set.has(key(x + ox + 1, y + oy + 1))
+    ) {
+      return true;
     }
   }
-  return trail;
+  return false;
+}
+
+export function pruneThinBlotches(blotchAt: Map<string, ResolvedRef>): void {
+  const byRef = new Map<number, Set<string>>();
+  for (const [k, ref] of blotchAt) {
+    let s = byRef.get(ref.serverId);
+    if (!s) {
+      s = new Set();
+      byRef.set(ref.serverId, s);
+    }
+    s.add(k);
+  }
+  const remove: string[] = [];
+  for (const [k, ref] of blotchAt) {
+    const [x, y] = k.split(',').map(Number);
+    if (!inFullSquare(byRef.get(ref.serverId)!, x, y)) remove.push(k);
+  }
+  for (const k of remove) blotchAt.delete(k);
 }
 
 function biomeSelector(biomes: ResolvedBiome[], opts: GenerateOptions): (x: number, y: number) => ResolvedBiome {
@@ -275,14 +301,22 @@ export async function planGeneration(
   const blocked = new Set<string>(highAt.keys());
   ensureConnected(region, blocked, (k) => highAt.delete(k));
 
-  const trail = opts.trail ? buildTrail(region, opts.seed) : new Set<string>();
-  for (const k of trail) highAt.delete(k);
+  const blotchAt = new Map<string, ResolvedRef>();
+  if (opts.blotches) {
+    for (let i = 0; i < tiles.length; i++) {
+      const t = tiles[i];
+      const ref = blotchRefAt(at(i), t.x, t.y, opts.seed);
+      if (ref) blotchAt.set(key(t.x, t.y), ref);
+    }
+    pruneThinBlotches(blotchAt);
+  }
+  for (const k of blotchAt.keys()) highAt.delete(k);
 
   const lowAt = new Map<string, ResolvedLayer>();
   for (let i = 0; i < tiles.length; i++) {
     const t = tiles[i];
     const k = key(t.x, t.y);
-    if (!highAt.has(k) && !trail.has(k) && !excluded(k)) {
+    if (!highAt.has(k) && !blotchAt.has(k) && !excluded(k)) {
       const hit = rollLayers(t.x, t.y, split(at(i)).lows, opts.density, opts.seed + 5077, 977);
       if (hit) lowAt.set(k, hit);
     }
@@ -292,9 +326,7 @@ export async function planGeneration(
   const groups = new LayerGroups();
   for (let i = 0; i < tiles.length; i++) {
     const t = tiles[i];
-    const biome = at(i);
-    const onTrail = trail.has(key(t.x, t.y)) && biome.trail;
-    const g = onTrail ? biome.trail! : biome.ground;
+    const g = blotchAt.get(key(t.x, t.y)) ?? at(i).ground;
     groups.push(g.serverId, true, false, g.name, z, t.x, t.y);
     if (i % PLAN_BATCH === PLAN_BATCH - 1) await step();
   }

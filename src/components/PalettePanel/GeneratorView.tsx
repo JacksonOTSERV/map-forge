@@ -13,6 +13,7 @@ import { Checkbox } from '~/components/commons/ui/checkbox';
 import { useAssetsBundle } from '~/usecase/context/AssetsContext';
 import { loadBiomes, BrushOption, loadBrushOptions } from '~/adapter/biomes';
 
+import BrushImage from './BrushImage';
 import BiomeEditor from './BiomeEditor';
 import BrushSelect from './BrushSelect';
 
@@ -54,7 +55,8 @@ const GeneratorPanel = () => {
   const [seed, setSeed] = React.useState(1);
   const [density, setDensity] = React.useState(1);
   const [patchSize, setPatchSize] = React.useState(0.5);
-  const [trail, setTrail] = React.useState(false);
+  const [blotches, setBlotches] = React.useState(false);
+  const [blotchIntensity, setBlotchIntensity] = React.useState<Record<string, number>>({});
   const [editing, setEditing] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
 
@@ -89,9 +91,14 @@ const GeneratorPanel = () => {
   }, [dataDir, reloadKey]);
 
   const chosen = biomes.filter((b) => selected.has(b.name));
-  const canTrail = chosen.some((b) => b.trail);
+  const canBlotch = chosen.some((b) => b.blotches.length > 0);
+  const bkey = (name: string, i: number) => `${name} ${i}`;
+  const applyIntensity = (b: ResolvedBiome): ResolvedBiome => ({
+    ...b,
+    blotches: b.blotches.map((bl, i) => ({ ...bl, intensity: blotchIntensity[bkey(b.name, i)] ?? bl.intensity }))
+  });
   const groundOptions = React.useMemo(() => brushOptions.filter((o) => o.kind === 'ground'), [brushOptions]);
-  const hasStairs = brushOptions.some((o) => o.name === STAIRS_BRUSH);
+  const hasStairs = brushOptions.some((o) => o.name === 'stairs');
 
   const toggle = (name: string) =>
     setSelected((prev) => {
@@ -124,9 +131,10 @@ const GeneratorPanel = () => {
     }
     const target = mountainsOn ? resolveMountain(mountainName, freshBrushes) : null;
     const mountainOpts = target ? { seed, density: mountainDensity, steps, scale: 0.03 + roughness * 0.07, stairs } : null;
+    const blotchOn = blotches && chosenFresh.some((b) => b.blotches.length > 0);
     requestGenerate(
-      chosenFresh,
-      { seed, density, trail: trail && canTrail, biomeScale: 0.12 - patchSize * 0.1 },
+      blotchOn ? chosenFresh.map(applyIntensity) : chosenFresh,
+      { seed, density, blotches: blotchOn, biomeScale: 0.12 - patchSize * 0.1 },
       target,
       mountainOpts
     );
@@ -182,10 +190,40 @@ const GeneratorPanel = () => {
         </div>
       )}
 
-      <label className="flex items-center gap-2 py-0.5">
-        <Checkbox checked={trail} disabled={!canTrail} onCheckedChange={(v) => setTrail(v === true)} />
-        <span className="text-xs text-foreground">Draw trail</span>
-      </label>
+      <div className="flex flex-col gap-2">
+        <label className="flex items-center gap-2 py-0.5">
+          <Checkbox checked={blotches} disabled={!canBlotch} onCheckedChange={(v) => setBlotches(v === true)} />
+          <span className="text-xs text-foreground">Blotches</span>
+        </label>
+        {blotches && canBlotch && (
+          <div className="flex flex-col gap-2 rounded-md border border-border/50 p-2">
+            {chosen.flatMap((b) =>
+              b.blotches.map((bl, i) => {
+                const k = bkey(b.name, i);
+                const val = blotchIntensity[k] ?? bl.intensity;
+                const label = chosen.length > 1 ? `${b.name} · ${bl.ref.name}` : bl.ref.name;
+                return (
+                  <div key={k} className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <BrushImage size={20} option={brushOptions.find((o) => o.name === bl.ref.name) ?? null} />
+                      <SectionLabel>
+                        {label} {Math.round(val * 100)}%
+                      </SectionLabel>
+                    </div>
+                    <Slider
+                      max={1}
+                      min={0}
+                      step={0.05}
+                      value={[val]}
+                      onValueChange={([v]) => setBlotchIntensity((s) => ({ ...s, [k]: v }))}
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex flex-col gap-2 rounded-md border border-border/50 p-2">
         <label className="flex items-center gap-2">

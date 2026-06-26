@@ -2,7 +2,13 @@ import { invoke } from '@tauri-apps/api/core';
 
 import { defaultDataDir } from '~/adapter/assets';
 import { BrushRef, loadBrushIndex } from '~/adapter/palette';
-import { GenLayer, BiomeDef, ResolvedRef, ResolvedBiome, ResolvedLayer } from '~/domain/biome';
+import { GenLayer, BiomeDef, ResolvedRef, ResolvedBiome, ResolvedLayer, ResolvedBlotch } from '~/domain/biome';
+
+function clampIntensity(raw: string | null): number {
+  const n = Number(raw ?? '0.5');
+  if (!Number.isFinite(n)) return 0.5;
+  return Math.max(0, Math.min(1, n));
+}
 
 function sanitizeXml(text: string): string {
   return text.replace(/&(?!amp;|lt;|gt;|quot;|apos;|#)/g, '&amp;');
@@ -32,7 +38,13 @@ function parseBiomesXml(text: string): BiomeDef[] {
         cluster: c.getAttribute('cluster') === 'true'
       }))
       .filter((s) => s.brush && Number.isFinite(s.chance));
-    out.push({ name, ground, trail: el.getAttribute('trail'), scatters });
+    const blotches = Array.from(el.children)
+      .filter((c) => c.tagName === 'blotch')
+      .map((c) => ({ brush: c.getAttribute('brush') ?? '', intensity: clampIntensity(c.getAttribute('intensity')) }))
+      .filter((b) => b.brush);
+    const legacy = el.getAttribute('trail');
+    if (legacy && !blotches.some((b) => b.brush === legacy)) blotches.unshift({ brush: legacy, intensity: 0.5 });
+    out.push({ name, ground, blotches, scatters });
   }
   return out;
 }
@@ -47,13 +59,18 @@ function resolveRef(name: string, index: Map<string, BrushRef>): ResolvedRef | n
 function resolveBiome(def: BiomeDef, index: Map<string, BrushRef>): ResolvedBiome | null {
   const ground = resolveRef(def.ground, index);
   if (!ground) return null;
-  const trail = def.trail ? resolveRef(def.trail, index) : null;
+  const blotches = def.blotches
+    .map((b) => {
+      const ref = resolveRef(b.brush, index);
+      return ref ? { ref, intensity: b.intensity } : null;
+    })
+    .filter((b): b is ResolvedBlotch => b !== null);
   const scatters: ResolvedLayer[] = [];
   for (const s of def.scatters) {
     const ref = resolveRef(s.brush, index);
     if (ref) scatters.push({ ref, chance: s.chance, layer: s.layer, cluster: s.cluster });
   }
-  return { name: def.name, ground, trail, scatters };
+  return { name: def.name, ground, blotches, scatters };
 }
 
 export async function loadBiomes(dir = defaultDataDir()): Promise<ResolvedBiome[]> {
@@ -90,8 +107,10 @@ function escapeAttr(text: string): string {
 export function serializeBiomesXml(defs: BiomeDef[]): string {
   const lines = ['<biomes>'];
   for (const b of defs) {
-    const trail = b.trail ? ` trail="${escapeAttr(b.trail)}"` : '';
-    lines.push(`\t<biome name="${escapeAttr(b.name)}" ground="${escapeAttr(b.ground)}"${trail}>`);
+    lines.push(`\t<biome name="${escapeAttr(b.name)}" ground="${escapeAttr(b.ground)}">`);
+    for (const bl of b.blotches) {
+      lines.push(`\t\t<blotch brush="${escapeAttr(bl.brush)}" intensity="${bl.intensity}"/>`);
+    }
     for (const s of b.scatters) {
       lines.push(`\t\t<scatter brush="${escapeAttr(s.brush)}" chance="${s.chance}" layer="${s.layer}" cluster="${s.cluster}"/>`);
     }

@@ -67,7 +67,7 @@ const BiomeEditor = ({ onClose }: { onClose: () => void }) => {
   const addBiome = () => {
     dirtyRef.current = true;
     const ground = options.find((o) => o.kind === 'ground')?.name ?? '';
-    setDefs((prev) => [...prev, { name: `Biome ${prev.length + 1}`, ground, trail: null, scatters: [] }]);
+    setDefs((prev) => [...prev, { name: `Biome ${prev.length + 1}`, ground, blotches: [], scatters: [] }]);
     setIdx(defs.length);
   };
 
@@ -82,6 +82,11 @@ const BiomeEditor = ({ onClose }: { onClose: () => void }) => {
 
   const addScatter = () => patch({ scatters: [...current!.scatters, { brush: '', chance: 10, layer: 'low', cluster: false }] });
   const removeScatter = (j: number) => patch({ scatters: current!.scatters.filter((_, i) => i !== j) });
+
+  const setBlotch = (j: number, next: Partial<BiomeDef['blotches'][number]>) =>
+    patch({ blotches: current!.blotches.map((b, i) => (i === j ? { ...b, ...next } : b)) });
+  const addBlotch = () => patch({ blotches: [...current!.blotches, { brush: groundOptions[0]?.name ?? '', intensity: 0.5 }] });
+  const removeBlotch = (j: number) => patch({ blotches: current!.blotches.filter((_, i) => i !== j) });
 
   return (
     <div className="flex flex-col gap-3">
@@ -130,15 +135,28 @@ const BiomeEditor = ({ onClose }: { onClose: () => void }) => {
             <SectionLabel>Ground</SectionLabel>
             <BrushSelect value={current.ground} options={groundOptions} onChange={(v) => patch({ ground: v })} />
           </div>
-          <div className="flex flex-col gap-1">
-            <SectionLabel>Trail (optional)</SectionLabel>
-            <BrushSelect
-              allowNone
-              placeholder="none"
-              options={groundOptions}
-              value={current.trail ?? ''}
-              onChange={(v) => patch({ trail: v || null })}
-            />
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Blotch grounds (optional)</SectionLabel>
+              <button onClick={addBlotch} className="text-[10px] text-primary hover:underline">
+                + Add
+              </button>
+            </div>
+            {current.blotches.map((b, j) => (
+              <div key={j} className="flex items-center gap-1">
+                <div className="flex-1">
+                  <BrushSelect
+                    value={b.brush}
+                    placeholder="ground"
+                    options={groundOptions}
+                    onChange={(v) => setBlotch(j, { brush: v })}
+                  />
+                </div>
+                <button title="Remove" onClick={() => removeBlotch(j)} className="text-muted-foreground hover:text-destructive">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
           </div>
 
           <div className="flex flex-col gap-1.5">

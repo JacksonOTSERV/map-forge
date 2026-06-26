@@ -7,10 +7,15 @@ export interface BiomeLayerDef {
   cluster: boolean;
 }
 
+export interface BiomeBlotchDef {
+  brush: string;
+  intensity: number;
+}
+
 export interface BiomeDef {
   name: string;
   ground: string;
-  trail: string | null;
+  blotches: BiomeBlotchDef[];
   scatters: BiomeLayerDef[];
 }
 
@@ -28,17 +33,22 @@ export interface ResolvedLayer {
   cluster: boolean;
 }
 
+export interface ResolvedBlotch {
+  ref: ResolvedRef;
+  intensity: number;
+}
+
 export interface ResolvedBiome {
   name: string;
   ground: ResolvedRef;
-  trail: ResolvedRef | null;
+  blotches: ResolvedBlotch[];
   scatters: ResolvedLayer[];
 }
 
 export interface GenerateOptions {
   seed: number;
   density: number;
-  trail: boolean;
+  blotches: boolean;
   biomeScale: number;
 }
 
