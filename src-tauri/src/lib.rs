@@ -33,8 +33,8 @@ use creatures::{
 	CreatureWatcherState,
 };
 use map_edit::{
-	copy_selection, delete_item, delete_selection, erase_area, erase_brush, house_sizes, move_item, move_selection, paint_tiles,
-	paint_zone, paste_selection,
+	copy_selection, delete_item, delete_selection, erase_area, erase_brush, generate_apply, house_sizes, move_item, move_selection,
+	paint_tiles, paint_zone, paste_selection,
 	preview_paint, set_house, CopyBuffer,
 };
 use lua_format::{
@@ -60,6 +60,7 @@ pub(crate) type MinimapPaletteState = Arc<Mutex<Vec<u8>>>;
 pub(crate) struct PlaceFlags {
 	pub(crate) ground: bool,
 	pub(crate) top_order: u8,
+	pub(crate) blocking: bool,
 }
 
 pub(crate) type PlacementState = Arc<Mutex<HashMap<u16, PlaceFlags>>>;
@@ -151,6 +152,7 @@ pub fn run() {
 			set_map_properties,
 			map_statistics,
 			paint_tiles,
+			generate_apply,
 			paint_zone,
 			set_house,
 			house_sizes,

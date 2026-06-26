@@ -20,6 +20,13 @@ impl Materials {
 		self.server_to_doodad.get(&server_id).copied()
 	}
 
+	pub fn doodad_id_by_name(&self, name: &str) -> Option<u32> {
+		if name.is_empty() {
+			return None;
+		}
+		self.doodads.iter().find(|d| d.name == name).map(|d| d.id)
+	}
+
 	pub fn doodad_placement(&self, own: u32, seed: u32) -> Vec<(i32, i32, u16)> {
 		let Some(d) = self.doodads.get(own.checked_sub(1).unwrap_or(u32::MAX) as usize) else {
 			return Vec::new();

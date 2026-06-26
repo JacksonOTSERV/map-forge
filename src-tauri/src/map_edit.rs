@@ -368,6 +368,15 @@ fn auto_after_change(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn item_blocks(place: &HashMap<u16, PlaceFlags>, otb: &OtbItems, server: u16) -> bool {
+	let client = otb.client_id(server).unwrap_or(server);
+	place.get(&client).is_some_and(|p| p.blocking)
+}
+
+fn tile_has_blocking(m: &MapModel, place: &HashMap<u16, PlaceFlags>, z: u8, x: u16, y: u16) -> bool {
+	stack_at(m, z, x, y).iter().any(|&(c, _)| place.get(&c).is_some_and(|p| p.blocking))
+}
+
 fn run_paint(
 	m: &mut MapModel,
 	mats: Option<&Materials>,
@@ -380,13 +389,19 @@ fn run_paint(
 	client_id: u16,
 	is_ground: bool,
 	is_doodad: bool,
+	brush_name: &str,
 	automagic: bool,
+	block_guard: bool,
 ) -> HashSet<u32> {
 	let mut touched: HashSet<u32> = HashSet::new();
 	let mut painted: HashSet<(u16, u16)> = HashSet::new();
 	let mut painted_ground = false;
 
-	let doodad_brush = if is_doodad { mats.and_then(|mt| mt.doodad_brush_for(server_id)) } else { None };
+	let doodad_brush = if is_doodad {
+		mats.and_then(|mt| mt.doodad_id_by_name(brush_name).or_else(|| mt.doodad_brush_for(server_id)))
+	} else {
+		None
+	};
 
 	for i in 0..xs.len() {
 		let (x, y) = (xs[i], ys[i]);
@@ -401,6 +416,9 @@ fn run_paint(
 				if !crate::scripting::allow_place(item, has_ground) {
 					continue;
 				}
+				if block_guard && item_blocks(place, otb, item) && tile_has_blocking(m, place, z, tx, ty) {
+					continue;
+				}
 				let client = otb.client_id(item).unwrap_or(0);
 				insert_ordered(tile_stack_mut(m, z, tx, ty), place, Some(mats), client, item);
 				touched.insert(chunk_key_of(tx, ty));
@@ -410,6 +428,9 @@ fn run_paint(
 		}
 		let has_ground = stack_at(m, z, x, y).first().is_some_and(|&(c, s)| is_ground_item(place, mats, c, s));
 		if !crate::scripting::allow_place(server_id, has_ground) {
+			continue;
+		}
+		if block_guard && item_blocks(place, otb, server_id) && tile_has_blocking(m, place, z, x, y) {
 			continue;
 		}
 		insert_ordered(tile_stack_mut(m, z, x, y), place, mats, client_id, server_id);
@@ -467,7 +488,7 @@ pub fn paint_tiles(
 	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
 	m.ensure_tiles(z, &edit_tiles, otb)?;
 	m.record_begin();
-	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, automagic);
+	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, "", automagic, false);
 	m.record_commit(ACTION_PAINT);
 	Ok(touched.into_iter().collect())
 }
@@ -715,7 +736,7 @@ pub fn preview_paint(
 		}
 	}
 
-	run_paint(&mut scratch, Some(mats), &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, true);
+	run_paint(&mut scratch, Some(mats), &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, "", true, false);
 
 	let mut out: Vec<u8> = Vec::new();
 	push_u32(&mut out, 0);
@@ -1246,6 +1267,199 @@ pub fn paste_selection(
 	Ok(touched.into_iter().collect())
 }
 
+pub struct GenLayer {
+	pub server_id: u16,
+	pub is_ground: bool,
+	pub is_doodad: bool,
+	pub brush: String,
+	pub z: u8,
+	pub xs: Vec<u16>,
+	pub ys: Vec<u16>,
+}
+
+struct Cursor<'a> {
+	b: &'a [u8],
+	o: usize,
+}
+
+impl<'a> Cursor<'a> {
+	fn need(&self, n: usize) -> Result<(), String> {
+		if self.o + n > self.b.len() {
+			Err("generate payload truncated".into())
+		} else {
+			Ok(())
+		}
+	}
+	fn u8(&mut self) -> Result<u8, String> {
+		self.need(1)?;
+		let v = self.b[self.o];
+		self.o += 1;
+		Ok(v)
+	}
+	fn u16(&mut self) -> Result<u16, String> {
+		self.need(2)?;
+		let v = u16::from_le_bytes([self.b[self.o], self.b[self.o + 1]]);
+		self.o += 2;
+		Ok(v)
+	}
+	fn u32(&mut self) -> Result<u32, String> {
+		self.need(4)?;
+		let v = u32::from_le_bytes([self.b[self.o], self.b[self.o + 1], self.b[self.o + 2], self.b[self.o + 3]]);
+		self.o += 4;
+		Ok(v)
+	}
+	fn utf8(&mut self, n: usize) -> Result<String, String> {
+		self.need(n)?;
+		let s = String::from_utf8(self.b[self.o..self.o + n].to_vec()).map_err(|_| "invalid utf8 in generate payload")?;
+		self.o += n;
+		Ok(s)
+	}
+}
+
+fn decode_generate(bytes: &[u8]) -> Result<(u32, bool, String, Vec<GenLayer>), String> {
+	let mut c = Cursor { b: bytes, o: 0 };
+	let map_id = c.u32()?;
+	let automagic = c.u8()? != 0;
+	let dir_len = c.u16()? as usize;
+	let data_dir = c.utf8(dir_len)?;
+	let layer_count = c.u32()? as usize;
+	let mut layers = Vec::with_capacity(layer_count);
+	for _ in 0..layer_count {
+		let server_id = c.u16()?;
+		let flags = c.u8()?;
+		let z = c.u8()?;
+		let brush_len = c.u16()? as usize;
+		let brush = c.utf8(brush_len)?;
+		let tile_count = c.u32()? as usize;
+		let mut xs = Vec::with_capacity(tile_count);
+		for _ in 0..tile_count {
+			xs.push(c.u16()?);
+		}
+		let mut ys = Vec::with_capacity(tile_count);
+		for _ in 0..tile_count {
+			ys.push(c.u16()?);
+		}
+		layers.push(GenLayer {
+			server_id,
+			is_ground: flags & 1 != 0,
+			is_doodad: flags & 2 != 0,
+			brush,
+			z,
+			xs,
+			ys,
+		});
+	}
+	Ok((map_id, automagic, data_dir, layers))
+}
+
+#[tauri::command]
+pub fn generate_apply(
+	request: tauri::ipc::Request<'_>,
+	otb_state: tauri::State<OtbState>,
+	map_state: tauri::State<MapState>,
+	materials_state: tauri::State<MaterialsState>,
+	placement_state: tauri::State<PlacementState>,
+	lua_state: tauri::State<LuaState>,
+) -> Result<Vec<(u8, u32)>, String> {
+	let body = match request.body() {
+		tauri::ipc::InvokeBody::Raw(b) => b.as_slice(),
+		_ => return Err("generate_apply expects a binary body".into()),
+	};
+	let (map_id, automagic, data_dir, layers) = decode_generate(body)?;
+
+	if !data_dir.is_empty() {
+		if let Ok(fresh) = Materials::load(std::path::Path::new(&data_dir)) {
+			*materials_state.lock().map_err(|e| format!("Lock error: {}", e))? = Some(fresh);
+		}
+	}
+
+	let otb_guard = otb_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let empty_otb = OtbItems::default();
+	let otb = otb_guard.as_ref().unwrap_or(&empty_otb);
+
+	let materials_guard = materials_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let mats = materials_guard.as_ref();
+	let place = placement_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+	let lua_guard = lua_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let _lua = ScopedLua::enter(&lua_guard);
+
+	let mut guard = map_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+	let m = guard.maps.get_mut(&map_id).ok_or("map not loaded")?;
+
+	let mut tiles_by_z: HashMap<u8, Vec<(u16, u16)>> = HashMap::new();
+	for layer in &layers {
+		let bucket = tiles_by_z.entry(layer.z).or_default();
+		for i in 0..layer.xs.len() {
+			bucket.push((layer.xs[i], layer.ys[i]));
+		}
+	}
+	for (&z, tiles) in &tiles_by_z {
+		m.ensure_tiles(z, tiles, otb)?;
+	}
+	m.record_begin();
+
+	let mut touched: HashSet<(u8, u32)> = HashSet::new();
+	for (&z, tiles) in &tiles_by_z {
+		for &(x, y) in tiles {
+			tile_stack_mut(m, z, x, y).clear();
+			touched.insert((z, chunk_key_of(x, y)));
+		}
+	}
+
+	let mut affected: HashMap<u8, HashSet<(u16, u16)>> = HashMap::new();
+	for layer in &layers {
+		let client_id = match otb_guard.as_ref() {
+			Some(o) => o.client_id(layer.server_id).unwrap_or(0),
+			None => layer.server_id,
+		};
+		let keys = run_paint(
+			m, mats, &place, otb, layer.z, &layer.xs, &layer.ys, layer.server_id, client_id, layer.is_ground, layer.is_doodad,
+			&layer.brush, false, true,
+		);
+		touched.extend(keys.into_iter().map(|k| (layer.z, k)));
+		let set = affected.entry(layer.z).or_default();
+		for i in 0..layer.xs.len() {
+			set.insert((layer.xs[i], layer.ys[i]));
+		}
+	}
+
+	if automagic {
+		if let Some(mats) = mats {
+			let mut need_wall = false;
+			let mut need_table = false;
+			let mut need_carpet = false;
+			for layer in &layers {
+				if mats.wall_brush_for(layer.server_id).is_some() {
+					need_wall = true;
+				}
+				if mats.table_brush_for(layer.server_id).is_some() {
+					need_table = true;
+				}
+				if mats.carpet_brush_for(layer.server_id).is_some() {
+					need_carpet = true;
+				}
+			}
+			for (&z, tiles) in &affected {
+				touched.extend(borderize(m, mats, &place, otb, z, tiles, true).into_iter().map(|k| (z, k)));
+				if need_wall {
+					touched.extend(wallize(m, mats, otb, z, tiles).into_iter().map(|k| (z, k)));
+				}
+				if need_table {
+					let keys = realign8(m, mats, otb, z, tiles, Materials::table_brush_for, Materials::table_id_for);
+					touched.extend(keys.into_iter().map(|k| (z, k)));
+				}
+				if need_carpet {
+					let keys = realign8(m, mats, otb, z, tiles, Materials::carpet_brush_for, Materials::carpet_id_for);
+					touched.extend(keys.into_iter().map(|k| (z, k)));
+				}
+			}
+		}
+	}
+	m.record_commit(ACTION_PAINT);
+	Ok(touched.into_iter().collect())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -1256,6 +1470,45 @@ mod tests {
 
 	const DATA: &str = "../data/860";
 
+	#[test]
+	fn decode_generate_round_trips_layout() {
+		let mut b: Vec<u8> = Vec::new();
+		b.extend_from_slice(&7u32.to_le_bytes());
+		b.push(1);
+		let dir = b"d/860";
+		b.extend_from_slice(&(dir.len() as u16).to_le_bytes());
+		b.extend_from_slice(dir);
+		b.extend_from_slice(&1u32.to_le_bytes());
+		b.extend_from_slice(&4526u16.to_le_bytes());
+		b.push(0b01);
+		b.push(7);
+		let brush = b"grass";
+		b.extend_from_slice(&(brush.len() as u16).to_le_bytes());
+		b.extend_from_slice(brush);
+		b.extend_from_slice(&2u32.to_le_bytes());
+		for x in [10u16, 11] {
+			b.extend_from_slice(&x.to_le_bytes());
+		}
+		for y in [20u16, 21] {
+			b.extend_from_slice(&y.to_le_bytes());
+		}
+
+		let (map_id, automagic, data_dir, layers) = decode_generate(&b).unwrap();
+		assert_eq!(map_id, 7);
+		assert!(automagic);
+		assert_eq!(data_dir, "d/860");
+		assert_eq!(layers.len(), 1);
+		let l = &layers[0];
+		assert_eq!(l.server_id, 4526);
+		assert!(l.is_ground && !l.is_doodad);
+		assert_eq!(l.z, 7);
+		assert_eq!(l.brush, "grass");
+		assert_eq!(l.xs, vec![10, 11]);
+		assert_eq!(l.ys, vec![20, 21]);
+
+		assert!(decode_generate(&b[..b.len() - 1]).is_err(), "truncated payload errors");
+	}
+
 	fn load_materials() -> Materials {
 		Materials::load(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../data/860")).unwrap()
 	}
@@ -1263,8 +1516,8 @@ mod tests {
 	#[test]
 	fn insert_ordered_places_ground_borders_and_normal() {
 		let mut place = HashMap::new();
-		place.insert(10u16, PlaceFlags { ground: true, top_order: 0 });
-		place.insert(20u16, PlaceFlags { ground: false, top_order: 2 });
+		place.insert(10u16, PlaceFlags { ground: true, top_order: 0, blocking: false });
+		place.insert(20u16, PlaceFlags { ground: false, top_order: 2, blocking: false });
 
 		let mut stack: Vec<(u16, u16)> = Vec::new();
 		insert_ordered(&mut stack, &place, None, 30, 300);
@@ -1284,7 +1537,7 @@ mod tests {
 		let mats = load_materials();
 		let grass = otb.client_id(4526).unwrap_or(0);
 		let mut place = HashMap::new();
-		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0, blocking: false });
 		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
 
 		let host = LuaHost::new(PathBuf::from("."));
@@ -1294,11 +1547,32 @@ mod tests {
 			.unwrap();
 		let _s = ScopedLua::enter(&host);
 
-		run_paint(&mut m, Some(&mats), &place, &otb, 7, &[50], &[50], 4526, grass, true, false, false);
+		run_paint(&mut m, Some(&mats), &place, &otb, 7, &[50], &[50], 4526, grass, true, false, "", false, false);
 		assert!(stack_at(&m, 7, 50, 50).is_empty(), "lua veto blocks grass (4526)");
 
-		run_paint(&mut m, Some(&mats), &place, &otb, 7, &[51], &[51], 4527, otb.client_id(4527).unwrap_or(0), false, false, false);
+		run_paint(&mut m, Some(&mats), &place, &otb, 7, &[51], &[51], 4527, otb.client_id(4527).unwrap_or(0), false, false, "", false, false);
 		assert!(!stack_at(&m, 7, 51, 51).is_empty(), "non-vetoed id still places");
+	}
+
+	#[test]
+	fn block_guard_skips_overlapping_blocking_item() {
+		let otb = parse_otb(&fs::read(format!("{}/items.otb", DATA)).unwrap()).unwrap();
+		let mats = load_materials();
+		let blk_server = 1234u16;
+		let blk = otb.client_id(blk_server).unwrap_or(blk_server);
+		let mut place = HashMap::new();
+		place.insert(blk, PlaceFlags { ground: false, top_order: 0, blocking: true });
+		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
+
+		run_paint(&mut m, Some(&mats), &place, &otb, 7, &[60], &[60], blk_server, blk, false, false, "", false, true);
+		let after_first = stack_at(&m, 7, 60, 60).len();
+		assert_eq!(after_first, 1, "first blocking item places");
+
+		run_paint(&mut m, Some(&mats), &place, &otb, 7, &[60], &[60], blk_server, blk, false, false, "", false, true);
+		assert_eq!(stack_at(&m, 7, 60, 60).len(), after_first, "guard skips second blocking item on same tile");
+
+		run_paint(&mut m, Some(&mats), &place, &otb, 7, &[60], &[60], blk_server, blk, false, false, "", false, false);
+		assert!(stack_at(&m, 7, 60, 60).len() > after_first, "without guard a second blocking item stacks");
 	}
 
 	#[test]
@@ -1308,7 +1582,7 @@ mod tests {
 
 		let grass_client = otb.client_id(4526).unwrap_or(0);
 		let mut place = HashMap::new();
-		place.insert(grass_client, PlaceFlags { ground: true, top_order: 0 });
+		place.insert(grass_client, PlaceFlags { ground: true, top_order: 0, blocking: false });
 
 		let mut m = build_map_model(100, 100, &[50], &[50], &[7], &[0], &[1], &[grass_client], &[4526], &[1], &[], &[], &[], Vec::new(), 0);
 
@@ -1327,7 +1601,7 @@ mod tests {
 		let mats = load_materials();
 		let grass = otb.client_id(4526).unwrap_or(0);
 		let mut place = HashMap::new();
-		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0, blocking: false });
 
 		let mut m = build_map_model(100, 100, &[50, 51], &[50, 50], &[7, 7], &[0, 1], &[1, 1], &[grass, grass], &[4526, 4526], &[1, 1], &[], &[], &[], Vec::new(), 0);
 
@@ -1349,7 +1623,7 @@ mod tests {
 		let mats = load_materials();
 		let grass = otb.client_id(4526).unwrap_or(0);
 		let mut place = HashMap::new();
-		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0, blocking: false });
 
 		let mut m = build_map_model(100, 100, &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], &[], Vec::new(), 0);
 
@@ -1374,7 +1648,7 @@ mod tests {
 		let mats = load_materials();
 		let grass = otb.client_id(4526).unwrap_or(0);
 		let mut place = HashMap::new();
-		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0, blocking: false });
 
 		let border_server = *mats.border_item_ids.iter().next().expect("a border item exists");
 		let border_client = otb.client_id(border_server).unwrap_or(0);
@@ -1401,7 +1675,7 @@ mod tests {
 		let mats = load_materials();
 		let grass = otb.client_id(4526).unwrap_or(0);
 		let mut place = HashMap::new();
-		place.insert(grass, PlaceFlags { ground: true, top_order: 0 });
+		place.insert(grass, PlaceFlags { ground: true, top_order: 0, blocking: false });
 
 		let border_server = *mats.border_item_ids.iter().next().expect("a border item exists");
 		let border_client = otb.client_id(border_server).unwrap_or(0);

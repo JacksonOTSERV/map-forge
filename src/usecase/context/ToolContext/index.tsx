@@ -1,9 +1,11 @@
 import React from 'react';
 
 import { ToolId, EraserMode } from '~/domain/tools';
+import { ResolvedBiome, GenerateOptions } from '~/domain/biome';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
+import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
 
-import { PaletteReveal, ToolContextValue, ToolProviderProps, PaletteCategorySignal } from './types';
+import { PaletteReveal, GenerateSignal, ToolContextValue, ToolProviderProps, PaletteCategorySignal } from './types';
 
 const ToolContext = React.createContext({} as ToolContextValue);
 
@@ -15,6 +17,8 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
   const [eraserMode, setEraserMode] = React.useState<EraserMode>('items');
   const [reveal, setReveal] = React.useState<PaletteReveal | null>(null);
   const [paletteCategory, setPaletteCategoryState] = React.useState<PaletteCategorySignal | null>(null);
+  const [generateSignal, setGenerateSignal] = React.useState<GenerateSignal | null>(null);
+  const [generationProgress, setGenerationProgress] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const sync = (e: KeyboardEvent) => setCtrlErase(e.ctrlKey);
@@ -48,6 +52,18 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
     setPaletteCategoryState((p) => ({ category, nonce: (p?.nonce ?? 0) + 1 }));
   }, []);
 
+  const requestGenerate = React.useCallback(
+    (
+      biomes: ResolvedBiome[],
+      opts: GenerateOptions,
+      mountain: ResolvedMountain | null = null,
+      mountainOpts: MountainOptions | null = null
+    ) => {
+      setGenerateSignal((s) => ({ biomes, opts, mountain, mountainOpts, nonce: (s?.nonce ?? 0) + 1 }));
+    },
+    []
+  );
+
   const value = React.useMemo<ToolContextValue>(
     () => ({
       activeTool,
@@ -57,6 +73,10 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       eraserMode,
       reveal,
       paletteCategory,
+      generateSignal,
+      generationProgress,
+      setGenerationProgress,
+      requestGenerate,
       setActiveTool,
       selectBrush,
       setActiveHouse,
@@ -72,6 +92,10 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       eraserMode,
       reveal,
       paletteCategory,
+      generateSignal,
+      generationProgress,
+      setGenerationProgress,
+      requestGenerate,
       setActiveTool,
       selectBrush,
       setActiveHouse,

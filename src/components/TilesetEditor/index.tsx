@@ -1,4 +1,5 @@
 import React from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { X, Copy, Plus, Minus, Pencil, Search, Square, Trash2, TriangleAlert } from 'lucide-react';
 import { useSensor, DndContext, useSensors, DragOverlay, DragEndEvent, PointerSensor, DragStartEvent } from '@dnd-kit/core';
@@ -325,6 +326,9 @@ const TilesetEditor = () => {
     else if (file === TILESETS_FILE) setTilesets(await loadTilesets(dataDir));
   };
 
+  const refreshMaterials = () =>
+    invoke('load_materials', { dataDir }).catch((err) => console.error('load_materials failed', err));
+
   const tx = (files: string[], selBefore: Selection | null, op: () => Promise<void>) => {
     const before = files.map((f) => ({ file: f, text: lastText.current.get(f) ?? '' }));
     op()
@@ -332,6 +336,7 @@ const TilesetEditor = () => {
         for (const f of files) lastText.current.set(f, await readMaterialText(dataDir, f));
         undoRef.current.push({ files: before, sel: selBefore });
         redoRef.current = [];
+        await refreshMaterials();
       })
       .catch((err) => console.error('Save failed', err));
   };
@@ -749,6 +754,7 @@ const TilesetEditor = () => {
         lastText.current.set(x.file, x.text);
         await reloadFile(x.file);
       }
+      await refreshMaterials();
       setSel(entry.sel);
     })().catch((err) => console.error('History restore failed', err));
   };

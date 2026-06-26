@@ -23,7 +23,7 @@ pub trait SpriteProvider: Send + Sync {
 
 pub struct MetadataResult {
     pub encoded: Vec<u8>,
-    pub placement: Vec<(u16, bool, u8)>,
+    pub placement: Vec<(u16, bool, u8, bool)>,
 }
 
 pub trait MetadataProvider: Send + Sync {

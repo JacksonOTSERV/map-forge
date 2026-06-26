@@ -3,12 +3,17 @@ import React from 'react';
 import { Position } from '~/domain/map';
 import { isZoneTool } from '~/domain/tools';
 import { ZONE_TOOL_FLAG } from '~/domain/zones';
+import { generateApply } from '~/adapter/biomes';
 import { selectionFloorBoxes } from '~/usecase/floors';
 import { buildItemPreview } from '~/usecase/itemPreview';
+import { planGeneration } from '~/lib/generator/generate';
 import { formatPosition } from '~/usecase/positionFormat';
 import { MapSpawns, emptyMapSpawns } from '~/domain/creature';
+import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
+import { GenPlan, ResolvedBiome, GenerateOptions } from '~/domain/biome';
 import { waypointAt, MapWaypoints, emptyMapWaypoints } from '~/domain/waypoint';
 import { TILE, CHUNK, MOVE_THRESHOLD_SQ } from '~/components/MapCanvas/constants';
+import { planMountain, mountainMargin, mountainHeights } from '~/lib/generator/generateMountain';
 import { addWaypoint, moveWaypoint, removeWaypoint, renameWaypoint, nextWaypointName } from '~/usecase/waypointEdits';
 import {
   HoverInfo,
@@ -54,7 +59,7 @@ import { MapCamera } from './useMapCamera';
 import { SpriteAtlas } from './useSpriteAtlas';
 import { ChunkTilesCache } from './useChunkTiles';
 import { ChunkMeshCache } from './useChunkMeshes';
-import { buildSelectionGhost, ClipboardGhostTile } from './meshBuilder';
+import { ClipboardGhostTile, buildSelectionGhost } from './meshBuilder';
 import { Selection, BoxSelection, selectionSig, SelectionSnapshot } from './useSelection';
 
 type EditEntry =
@@ -71,6 +76,8 @@ type EditEntry =
     };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+const MOUNTAIN_SCATTER_MARGIN = 1;
 
 export interface InteractionDeps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
@@ -814,6 +821,66 @@ export function useMapInteraction(deps: InteractionDeps) {
     }
   }
 
+  function selectedCells(z: number): { x: number; y: number }[] {
+    const cells: { x: number; y: number }[] = [];
+    for (const t of selection.entries.current.values()) if (t.z === z) cells.push({ x: t.x, y: t.y });
+    return cells;
+  }
+
+  async function applyPlan(plan: GenPlan, count: number, report: (label: string) => void) {
+    if (plan.layers.length === 0) {
+      report('Nothing to generate');
+      return;
+    }
+    recordItemEdit();
+    report(`Painting ${plural(count, 'tile')}...`);
+    try {
+      const touched = await generateApply(inputs.current.map.id, plan.layers, inputs.current.automagic);
+      report('Refreshing...');
+      refetchTagged(touched);
+      atlas.version.current++;
+      report(`Generated ${plural(count, 'tile')}`);
+    } catch (err) {
+      console.error('Generate failed', err);
+      report('Generate failed');
+    }
+  }
+
+  async function generate(
+    biomes: ResolvedBiome[],
+    opts: GenerateOptions,
+    mountain?: ResolvedMountain | null,
+    mountainOpts?: MountainOptions | null,
+    onProgress?: (label: string) => void
+  ) {
+    const report = (label: string) => {
+      emit(label);
+      onProgress?.(label);
+    };
+    const z = inputs.current.floorZ;
+    const cells = selectedCells(z);
+    if (cells.length === 0) {
+      report('Select an area first');
+      return;
+    }
+    const exclude =
+      mountain && mountainOpts ? mountainMargin(mountainHeights(cells, mountainOpts), MOUNTAIN_SCATTER_MARGIN) : undefined;
+    report(`Planning ${plural(cells.length, 'tile')}...`);
+    const plan = await planGeneration(
+      cells,
+      biomes,
+      opts,
+      z,
+      (d, t) => report(`Planning... ${Math.round((d / t) * 100)}%`),
+      exclude
+    );
+    await applyPlan(plan, cells.length, report);
+    if (mountain && mountainOpts) {
+      report('Planning mountains...');
+      await applyPlan(planMountain(cells, mountain, mountainOpts, z), cells.length, report);
+    }
+  }
+
   function selectionArrays() {
     const sel = [...selection.entries.current.values()];
     if (sel.length === 0) return null;
@@ -1520,6 +1587,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     selectRaw,
     selectGround,
     selectHouse,
+    generate,
     goTo,
     cut: () => {
       cutSelected();

@@ -22,8 +22,8 @@ impl MetadataProvider for TibiaMetadataProvider {
             } else {
                 0
             };
-            if it.is_ground || top_order != 0 {
-                placement.push((it.id as u16, it.is_ground, top_order));
+            if it.is_ground || top_order != 0 || it.is_unpassable {
+                placement.push((it.id as u16, it.is_ground, top_order, it.is_unpassable));
             }
         }
 

@@ -1,7 +1,17 @@
 import React from 'react';
 
 import { ToolId, EraserMode } from '~/domain/tools';
+import { ResolvedBiome, GenerateOptions } from '~/domain/biome';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
+import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
+
+export interface GenerateSignal {
+  biomes: ResolvedBiome[];
+  opts: GenerateOptions;
+  mountain: ResolvedMountain | null;
+  mountainOpts: MountainOptions | null;
+  nonce: number;
+}
 
 export interface PaletteReveal {
   category: PaletteCategoryId;
@@ -23,6 +33,15 @@ export interface ToolContextValue {
   eraserMode: EraserMode;
   reveal: PaletteReveal | null;
   paletteCategory: PaletteCategorySignal | null;
+  generateSignal: GenerateSignal | null;
+  generationProgress: string | null;
+  setGenerationProgress: (label: string | null) => void;
+  requestGenerate: (
+    biomes: ResolvedBiome[],
+    opts: GenerateOptions,
+    mountain?: ResolvedMountain | null,
+    mountainOpts?: MountainOptions | null
+  ) => void;
   setActiveTool: (tool: ToolId) => void;
   selectBrush: (brush: ActiveBrush | null) => void;
   setActiveHouse: (id: number | null) => void;

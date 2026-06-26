@@ -129,8 +129,8 @@ pub fn parse_dat_file_bin(path: String, version: u32, fm: tauri::State<FormatMan
 	let result = mgr.metadata().read_metadata(&path, version)?;
 
 	let mut placement: HashMap<u16, PlaceFlags> = HashMap::with_capacity(result.placement.len());
-	for (id, ground, top_order) in &result.placement {
-		placement.insert(*id, PlaceFlags { ground: *ground, top_order: *top_order });
+	for (id, ground, top_order, blocking) in &result.placement {
+		placement.insert(*id, PlaceFlags { ground: *ground, top_order: *top_order, blocking: *blocking });
 	}
 	*placement_state.lock().map_err(|e| format!("Lock error: {}", e))? = placement;
 

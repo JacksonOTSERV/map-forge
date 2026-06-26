@@ -8,6 +8,7 @@ thread_local! {
 	static CLASS_CACHE: RefCell<HashMap<(bool, bool, u8), i32>> = RefCell::new(HashMap::new());
 	static WALL_CACHE: RefCell<HashMap<(u8, bool), Option<u8>>> = RefCell::new(HashMap::new());
 	static BORDER_CACHE: RefCell<HashMap<u8, Option<u32>>> = RefCell::new(HashMap::new());
+	static ALLOW_CACHE: RefCell<HashMap<(u16, bool), bool>> = RefCell::new(HashMap::new());
 }
 
 pub struct ScopedLua;
@@ -18,6 +19,7 @@ impl ScopedLua {
 		CLASS_CACHE.with(|c| c.borrow_mut().clear());
 		WALL_CACHE.with(|c| c.borrow_mut().clear());
 		BORDER_CACHE.with(|c| c.borrow_mut().clear());
+		ALLOW_CACHE.with(|c| c.borrow_mut().clear());
 		ScopedLua
 	}
 }
@@ -28,6 +30,7 @@ impl Drop for ScopedLua {
 		CLASS_CACHE.with(|c| c.borrow_mut().clear());
 		WALL_CACHE.with(|c| c.borrow_mut().clear());
 		BORDER_CACHE.with(|c| c.borrow_mut().clear());
+		ALLOW_CACHE.with(|c| c.borrow_mut().clear());
 	}
 }
 
@@ -121,7 +124,13 @@ fn lua_allow_place(h: &LuaHost, server: u16, has_ground: bool) -> Option<bool> {
 }
 
 pub fn allow_place(server: u16, has_ground: bool) -> bool {
-	host().and_then(|h| lua_allow_place(h, server, has_ground)).unwrap_or(true)
+	let key = (server, has_ground);
+	if let Some(v) = ALLOW_CACHE.with(|c| c.borrow().get(&key).copied()) {
+		return v;
+	}
+	let v = host().and_then(|h| lua_allow_place(h, server, has_ground)).unwrap_or(true);
+	ALLOW_CACHE.with(|c| c.borrow_mut().insert(key, v));
+	v
 }
 
 #[cfg(test)]

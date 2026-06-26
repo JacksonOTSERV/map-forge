@@ -3,12 +3,12 @@ import { invoke } from '@tauri-apps/api/core';
 
 import { PaletteData } from '~/domain/palette';
 import { loadPalette } from '~/adapter/palette';
+import { setFloorShift } from '~/usecase/floors';
 import { setMinimapPalette } from '~/adapter/minimap';
-import { loadClientConfig, loadAssetPath } from '~/adapter/preferences';
+import { buildScriptedAssets } from '~/usecase/scriptedAssets';
+import { loadAssetPath, loadClientConfig } from '~/adapter/preferences';
 import { loadAssets, initDataDir, LoadedAssets } from '~/adapter/assets';
 import { uiConfig, appConfig, loadScriptedAssets, loadScriptedItemdb } from '~/adapter/scripts';
-import { buildScriptedAssets } from '~/usecase/scriptedAssets';
-import { setFloorShift } from '~/usecase/floors';
 
 export interface AssetsState {
   assets: LoadedAssets | null;
@@ -57,7 +57,7 @@ export const useAssets = (): AssetsState => {
     setVersion(v);
     loadedVersionRef.current = v;
 
-    const pal = await loadPalette(resolvedDataDir).catch(() => null);
+    const pal = await loadPalette(resolvedDataDir, a.items).catch(() => null);
     setPalette(pal);
   }, []);
 
@@ -116,7 +116,7 @@ export const useAssets = (): AssetsState => {
           if (cancelled) return;
           setAssets(scripted);
           await invoke('load_materials', { dataDir: resolvedDataDir }).catch(() => undefined);
-          const pal = await loadPalette(resolvedDataDir).catch(() => null);
+          const pal = await loadPalette(resolvedDataDir, scripted.items).catch(() => null);
           setPalette(pal);
           setStatus(`${ui.assets.label} ready - ${scripted.items.size} items${pal ? '' : ', no materials'}.`);
         } catch (e) {
@@ -140,7 +140,7 @@ export const useAssets = (): AssetsState => {
         const a = await loadAssets(resolvedDataDir, clientDir, v);
         if (cancelled) return;
         setAssets(a);
-        const pal = await loadPalette(resolvedDataDir).catch(() => null);
+        const pal = await loadPalette(resolvedDataDir, a.items).catch(() => null);
         setPalette(pal);
         const parts = [`${a.spritesCount} sprites`];
         if (a.otbItemCount > 0) parts.push(`${a.otbItemCount} items`);

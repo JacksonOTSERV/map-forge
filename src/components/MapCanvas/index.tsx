@@ -133,6 +133,14 @@ const MapCanvas = (props: MapCanvasProps) => {
   if (props.waypointEditRef) props.waypointEditRef.current = interaction.editWaypoints;
 
   React.useEffect(() => {
+    const signal = tool.generateSignal;
+    if (!signal) return;
+    const report = (label: string) => tool.setGenerationProgress(label);
+    const run = interaction.generate(signal.biomes, signal.opts, signal.mountain, signal.mountainOpts, report);
+    void run.finally(() => tool.setGenerationProgress(null));
+  }, [tool.generateSignal?.nonce]);
+
+  React.useEffect(() => {
     const ref = props.centerRef;
     if (!ref) return;
     ref.current = (x, y) => camera.centerOn({ x, y, z: inputs.current.floorZ });

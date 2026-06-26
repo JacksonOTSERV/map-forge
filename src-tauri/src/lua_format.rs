@@ -62,6 +62,7 @@ pub struct ThingDef {
 	pub is_ground_border: bool,
 	pub is_on_bottom: bool,
 	pub is_on_top: bool,
+	pub is_unpassable: bool,
 	pub has_offset: bool,
 	pub has_elevation: bool,
 	pub sprite_index: Vec<u32>,
@@ -497,6 +498,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
 				is_ground_border: def.get("is_ground_border").unwrap_or(false),
 				is_on_bottom: def.get("is_on_bottom").unwrap_or(false),
 				is_on_top: def.get("is_on_top").unwrap_or(false),
+				is_unpassable: def.get("is_unpassable").unwrap_or(false),
 				has_offset: def.get("has_offset").unwrap_or(false),
 				has_elevation: def.get("has_elevation").unwrap_or(false),
 				sprite_index: def.get("sprite_index").unwrap_or_default(),
@@ -750,7 +752,7 @@ pub fn load_scripted_assets(
 	for t in &things {
 		if let Ok(cid) = u16::try_from(t.id) {
 			let top_order = if t.is_on_top { 3 } else if t.is_on_bottom { 1 } else { 0 };
-			placement.insert(cid, PlaceFlags { ground: t.is_ground, top_order });
+			placement.insert(cid, PlaceFlags { ground: t.is_ground, top_order, blocking: t.is_unpassable });
 		}
 	}
 
