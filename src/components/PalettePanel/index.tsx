@@ -104,7 +104,8 @@ const PalettePanel = ({
   onPickCreatureDir
 }: PalettePanelProps) => {
   const { assets, palette } = useAssetsBundle();
-  const { reveal, selectBrush, paletteCategory, registerPalette, unregisterPalette, shouldHandleReveal } = useTool();
+  const { reveal, selectBrush, setSecondaryTile, paletteCategory, registerPalette, unregisterPalette, shouldHandleReveal } =
+    useTool();
 
   const data = React.useMemo<PaletteData>(() => {
     const base = palette as PaletteData;
@@ -318,6 +319,18 @@ const PalettePanel = ({
     });
   }
 
+  function handleSecondary(tile: Tile) {
+    const brush = tile.brush;
+    const serverId = brush.lookServerId ?? brush.paintServerId;
+    if (serverId == null) return;
+    setSecondaryTile({
+      name: brush.name,
+      kind: brush.kind,
+      serverId,
+      paintId: brush.paintServerId ?? serverId
+    });
+  }
+
   const isWaypoints = category === 'waypoints';
   const isHouses = category === 'houses';
   const isCreature = category === 'creature';
@@ -440,6 +453,12 @@ const PalettePanel = ({
                     <button
                       data-brush-key={tile.brush.key}
                       onClick={() => handleSelect(tile)}
+                      onMouseDown={(e) => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          handleSecondary(tile);
+                        }
+                      }}
                       className={cn(
                         'flex aspect-square items-center justify-center overflow-hidden rounded border bg-muted/40 transition-colors hover:bg-item-hover',
                         selectedKey === tile.brush.key ? 'border-primary bg-primary/15' : 'border-border/50'

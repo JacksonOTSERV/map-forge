@@ -5,7 +5,7 @@ import { ToolId, EraserMode } from '~/domain/tools';
 import { getSetting, setSetting } from '~/adapter/settings';
 import { ResolvedBiome, GenerateOptions } from '~/domain/biome';
 import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
-import { ActiveBrush, isRevealFriendly, PaletteCategoryId } from '~/domain/palette';
+import { BrushKind, ActiveBrush, isRevealFriendly, PaletteCategoryId } from '~/domain/palette';
 
 import { PaletteReveal, GenerateSignal, ToolContextValue, ToolProviderProps, PaletteCategorySignal } from './types';
 
@@ -75,6 +75,17 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       setActiveTile({ name: brush.name, kind: brush.kind, serverId: brush.serverId, paintId: brush.serverId });
     }
   }, []);
+
+  React.useEffect(() => {
+    if (activeTool !== 'brush' || !activeTile || activeTile.kind !== 'ground') return;
+    setActiveBrush({
+      key: `tile:${activeTile.paintId}`,
+      name: activeTile.name,
+      kind: activeTile.kind as BrushKind,
+      serverId: activeTile.paintId,
+      isGround: true
+    });
+  }, [activeTool, activeTile]);
 
   React.useEffect(() => {
     getSetting<BrushOption | null>('activeTile', null)

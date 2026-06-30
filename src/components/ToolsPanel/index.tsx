@@ -211,7 +211,7 @@ const TileSwatch = () => {
         <button
           onClick={swapTiles}
           title="Swap tiles (X)"
-          className="absolute -right-1.5 -top-1.5 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover text-muted-foreground shadow-sm hover:text-foreground"
+          className="absolute right-0 top-0 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover text-muted-foreground shadow-sm hover:text-foreground"
         >
           <Repeat2 className="h-2.5 w-2.5" />
         </button>
@@ -228,12 +228,8 @@ const TileSwatch = () => {
               {open === 'primary' ? 'Active tile' : 'Secondary tile'}
             </span>
             <BrushSelect onChange={pick} options={options} placeholder="Select ground" value={current?.name ?? ''} />
-            {open === 'primary' && (
-              <>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Pen width {penWidth}</span>
-                <Slider max={5} min={1} step={0.5} value={[penWidth]} onValueChange={([v]) => setPenWidth(v)} />
-              </>
-            )}
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Pen width {penWidth}</span>
+            <Slider max={5} min={1} step={0.5} value={[penWidth]} onValueChange={([v]) => setPenWidth(v)} />
           </div>
         </>
       )}

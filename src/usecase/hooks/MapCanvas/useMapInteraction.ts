@@ -446,24 +446,40 @@ export function useMapInteraction(deps: InteractionDeps) {
   const previewKey = React.useRef<string | null>(null);
   const previewSeq = React.useRef(0);
 
+  function brushFootprint(cx: number, cy: number, penWidth: number): { xs: number[]; ys: number[] } {
+    const reach = Math.max(0, Math.round(penWidth) - 1);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let dy = -reach; dy <= reach; dy++) {
+      for (let dx = -reach; dx <= reach; dx++) {
+        if (Math.hypot(dx, dy) <= reach + 0.001) {
+          xs.push(cx + dx);
+          ys.push(cy + dy);
+        }
+      }
+    }
+    return { xs, ys };
+  }
+
   function paintAt(pos: Position) {
     const brush = inputs.current.activeBrush;
     if (!brush || brush.serverId == null) return;
     const key = `${pos.x},${pos.y},${pos.z}`;
     if (key === scene.lastPaintKey.current) return;
     scene.lastPaintKey.current = key;
+    const { xs, ys } = brush.isGround ? brushFootprint(pos.x, pos.y, inputs.current.penWidth) : { xs: [pos.x], ys: [pos.y] };
     paintTiles(
       inputs.current.map.id,
       pos.z,
-      [pos.x],
-      [pos.y],
+      xs,
+      ys,
       brush.serverId,
       brush.isGround,
       brush.kind === 'doodad',
       inputs.current.automagic
     )
       .then((touched) => {
-        if (touched.length === 0) tiles.queueRefetch(pos.x, pos.y, pos.z);
+        if (touched.length === 0) for (let i = 0; i < xs.length; i++) tiles.queueRefetch(xs[i], ys[i], pos.z);
         for (const key of touched) tiles.queueRefetch((key >>> 16) * CHUNK, (key & 0xffff) * CHUNK, pos.z);
         notifyEdit(pos.z);
       })
