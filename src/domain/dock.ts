@@ -106,8 +106,8 @@ export const PANELS: Record<PanelKind, PanelMeta> = {
 };
 
 export const DEFAULT_DOCK_LAYOUT: DockLayout = {
-  left: [['tools']],
-  right: [['palette']],
+  left: [['tools'], ['palette']],
+  right: [],
   float: {},
   width: {},
   height: {},
