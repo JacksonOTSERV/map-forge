@@ -2,7 +2,7 @@ import { ZoneToolId } from '~/domain/zones';
 
 export type HouseToolId = 'house' | 'house_exit';
 
-export type ToolId = 'select' | 'brush' | 'eraser' | 'spawn' | ZoneToolId | HouseToolId;
+export type ToolId = 'select' | 'brush' | 'pen' | 'eraser' | 'spawn' | ZoneToolId | HouseToolId;
 
 export interface ToolMeta {
   id: ToolId;
@@ -12,6 +12,7 @@ export interface ToolMeta {
 export const TOOLS: ToolMeta[] = [
   { id: 'select', label: 'Select' },
   { id: 'brush', label: 'Brush' },
+  { id: 'pen', label: 'Pen - click to add points, drag for curves, Enter/double-click to apply, Esc to cancel' },
   { id: 'eraser', label: 'Eraser' },
   { id: 'spawn', label: 'Spawn' },
   { id: 'zone_pz', label: 'Protection zone (Ctrl-drag to erase)' },

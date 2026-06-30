@@ -13,6 +13,8 @@ import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
 import { GenPlan, ResolvedBiome, GenerateOptions } from '~/domain/biome';
 import { waypointAt, MapWaypoints, emptyMapWaypoints } from '~/domain/waypoint';
 import { TILE, CHUNK, MOVE_THRESHOLD_SQ } from '~/components/MapCanvas/constants';
+import { PEN_CURSOR, PEN_MOVE_CURSOR, PEN_CONVERT_CURSOR } from '~/usecase/penCursors';
+import { PenHot, PenPoint, PenAnchor, pathTiles, sampleBezierPath } from '~/lib/pen/path';
 import { planMountain, mountainMargin, mountainHeights } from '~/lib/generator/generateMountain';
 import { addWaypoint, moveWaypoint, removeWaypoint, renameWaypoint, nextWaypointName } from '~/usecase/waypointEdits';
 import {
@@ -64,6 +66,7 @@ import { Selection, BoxSelection, selectionSig, SelectionSnapshot } from './useS
 
 type EditEntry =
   | { kind: 'item' }
+  | { kind: 'pen'; anchors: PenAnchor[] }
   | { kind: 'spawn'; before: MapSpawns; after: MapSpawns }
   | { kind: 'waypoint'; before: MapWaypoints; after: MapWaypoints }
   | {
@@ -95,6 +98,9 @@ export function useMapInteraction(deps: InteractionDeps) {
 
   const [moving, setMoving] = React.useState(false);
   const [boxing, setBoxing] = React.useState(false);
+  const [spaceHeld, setSpaceHeld] = React.useState(false);
+  const spaceRef = React.useRef(false);
+  spaceRef.current = spaceHeld;
   const [menu, setMenu] = React.useState<ContextMenuState | null>(null);
   const [gotoForm, setGotoForm] = React.useState<Position | null>(null);
   const [spawnForm, setSpawnForm] = React.useState<SpawnForm | null>(null);
@@ -468,6 +474,160 @@ export function useMapInteraction(deps: InteractionDeps) {
       .catch((err) => console.error('Failed to paint box', err));
   }
 
+  type PenDrag =
+    | { kind: 'new' | 'move'; index: number }
+    | { kind: 'handle'; index: number; handle: 'in' | 'out' }
+    | { kind: 'convert'; index: number; moved: boolean };
+
+  const penAnchors = React.useRef<PenAnchor[]>([]);
+  const penDrag = React.useRef<PenDrag | null>(null);
+  const penHover = React.useRef<PenPoint | null>(null);
+  const penHot = React.useRef<PenHot | null>(null);
+  const [penCursor, setPenCursor] = React.useState(PEN_CURSOR);
+  const penCursorVal = React.useRef(PEN_CURSOR);
+  const setPenCursorIfChanged = (c: string) => {
+    if (penCursorVal.current === c) return;
+    penCursorVal.current = c;
+    setPenCursor(c);
+  };
+
+  const clonePenAnchors = (a: PenAnchor[]): PenAnchor[] =>
+    a.map((an) => ({ p: { ...an.p }, hIn: { ...an.hIn }, hOut: { ...an.hOut } }));
+
+  const PEN_HIT_PX = 9;
+
+  function penCursorFor(ctrl: boolean, alt: boolean): string {
+    if (ctrl) return PEN_MOVE_CURSOR;
+    if (alt) return PEN_CONVERT_CURSOR;
+    return PEN_CURSOR;
+  }
+
+  function penHotFor(ctrl: boolean, alt: boolean): PenHot | null {
+    const w = penHover.current;
+    if (!w || (!ctrl && !alt)) return null;
+    const h = penHitTest(w, ctrl && !alt);
+    if (!h) return null;
+    if (h.kind === 'handle') return { type: 'handle', index: h.index, handle: h.handle };
+    return { type: 'anchor', index: h.index };
+  }
+
+  function penHitTest(w: PenPoint, anchorsOnly: boolean): PenDrag | null {
+    const tol = PEN_HIT_PX / camera.zoomRef.current;
+    const near = (ax: number, ay: number) => Math.hypot(w.x - ax, w.y - ay) <= tol;
+    const anchors = penAnchors.current;
+    if (!anchorsOnly) {
+      for (let i = 0; i < anchors.length; i++) {
+        const a = anchors[i];
+        if ((a.hOut.x !== 0 || a.hOut.y !== 0) && near(a.p.x + a.hOut.x, a.p.y + a.hOut.y))
+          return { kind: 'handle', index: i, handle: 'out' };
+        if ((a.hIn.x !== 0 || a.hIn.y !== 0) && near(a.p.x + a.hIn.x, a.p.y + a.hIn.y))
+          return { kind: 'handle', index: i, handle: 'in' };
+      }
+    }
+    for (let i = 0; i < anchors.length; i++) {
+      if (near(anchors[i].p.x, anchors[i].p.y))
+        return anchorsOnly ? { kind: 'move', index: i } : { kind: 'convert', index: i, moved: false };
+    }
+    return null;
+  }
+
+  function penDown(e: React.MouseEvent) {
+    const w = camera.worldUnderCursor(e);
+    if (e.ctrlKey || e.metaKey) {
+      penDrag.current = penHitTest(w, true);
+      return;
+    }
+    if (e.altKey) {
+      penDrag.current = penHitTest(w, false);
+      return;
+    }
+    penAnchors.current.push({ p: { x: w.x, y: w.y }, hIn: { x: 0, y: 0 }, hOut: { x: 0, y: 0 } });
+    penDrag.current = { kind: 'new', index: penAnchors.current.length - 1 };
+  }
+
+  function penMove(e: React.MouseEvent) {
+    const w = camera.worldUnderCursor(e);
+    penHover.current = { x: w.x, y: w.y };
+    const drag = penDrag.current;
+    if (!drag) {
+      const ctrl = e.ctrlKey || e.metaKey;
+      setPenCursorIfChanged(penCursorFor(ctrl, e.altKey));
+      penHot.current = penHotFor(ctrl, e.altKey);
+      return;
+    }
+    penHot.current = null;
+    setPenCursorIfChanged(drag.kind === 'new' ? PEN_CURSOR : drag.kind === 'convert' ? PEN_CONVERT_CURSOR : PEN_MOVE_CURSOR);
+    const a = penAnchors.current[drag.index];
+    if (!a) return;
+    if (drag.kind === 'new') {
+      a.hOut = { x: w.x - a.p.x, y: w.y - a.p.y };
+      a.hIn = { x: a.p.x - w.x, y: a.p.y - w.y };
+    } else if (drag.kind === 'move') {
+      a.p = { x: w.x, y: w.y };
+    } else if (drag.kind === 'handle') {
+      if (drag.handle === 'out') a.hOut = { x: w.x - a.p.x, y: w.y - a.p.y };
+      else a.hIn = { x: w.x - a.p.x, y: w.y - a.p.y };
+    } else {
+      drag.moved = true;
+      a.hOut = { x: w.x - a.p.x, y: w.y - a.p.y };
+    }
+  }
+
+  function penUp() {
+    const drag = penDrag.current;
+    if (drag?.kind === 'convert' && !drag.moved) {
+      const a = penAnchors.current[drag.index];
+      if (a) {
+        a.hIn = { x: 0, y: 0 };
+        a.hOut = { x: 0, y: 0 };
+      }
+    }
+    penDrag.current = null;
+  }
+
+  function penCancel() {
+    if (penAnchors.current.length === 0) return;
+    penAnchors.current = [];
+    penDrag.current = null;
+    setPenCursorIfChanged(PEN_CURSOR);
+    emit('Pen cancelled');
+  }
+
+  function penFinish() {
+    const anchors = penAnchors.current;
+    if (anchors.length < 2) {
+      penAnchors.current = [];
+      penDrag.current = null;
+      return;
+    }
+    const brush = inputs.current.activeTile;
+    if (!brush) {
+      emit('Pick a tile first');
+      return;
+    }
+    const seed = Math.floor(Math.abs(anchors[0].p.x) * 0.13 + Math.abs(anchors[0].p.y) * 0.17) + anchors.length;
+    const { xs, ys } = pathTiles(sampleBezierPath(anchors), inputs.current.penWidth, { seed });
+    if (xs.length === 0) {
+      penAnchors.current = [];
+      penDrag.current = null;
+      return;
+    }
+    const saved = clonePenAnchors(anchors);
+    penAnchors.current = [];
+    penDrag.current = null;
+    setPenCursorIfChanged(PEN_CURSOR);
+    const z = inputs.current.floorZ;
+    undoTimeline.current.push({ kind: 'pen', anchors: saved });
+    redoTimeline.current = [];
+    paintTiles(inputs.current.map.id, z, xs, ys, brush.paintId, true, false, inputs.current.automagic)
+      .then((touched) => {
+        refetchKeysNow(touched, z);
+        notifyEdit(z);
+        emit(`Pen painted ${plural(xs.length, 'tile')}`);
+      })
+      .catch((err) => console.error('Failed to paint pen path', err));
+  }
+
   const zonePainting = React.useRef(false);
   const zoneMode = React.useRef<{ flag: number; set: boolean } | null>(null);
 
@@ -821,6 +981,49 @@ export function useMapInteraction(deps: InteractionDeps) {
     }
   }
 
+  function fillSelection() {
+    const tile = inputs.current.activeTile;
+    if (!tile) {
+      emit('Pick an active tile first');
+      return;
+    }
+    const sel = [...selection.entries.current.values()];
+    if (sel.length === 0) {
+      emit('Select an area first');
+      return;
+    }
+    const byZ = new Map<number, { xs: number[]; ys: number[] }>();
+    for (const t of sel) {
+      let g = byZ.get(t.z);
+      if (!g) {
+        g = { xs: [], ys: [] };
+        byZ.set(t.z, g);
+      }
+      g.xs.push(t.x);
+      g.ys.push(t.y);
+    }
+    let total = 0;
+    const tasks: Promise<void>[] = [];
+    for (const [z, g] of byZ) {
+      total += g.xs.length;
+      recordItemEdit();
+      tasks.push(
+        paintTiles(inputs.current.map.id, z, g.xs, g.ys, tile.paintId, true, false, inputs.current.automagic).then((touched) =>
+          refetchKeysNow(touched, z)
+        )
+      );
+    }
+    Promise.all(tasks)
+      .then(() => {
+        atlas.version.current++;
+        emit(`Filled ${plural(total, 'tile')}`);
+      })
+      .catch((err) => {
+        console.error('Failed to fill selection', err);
+        emit('Fill failed');
+      });
+  }
+
   function selectedCells(z: number): { x: number; y: number }[] {
     const cells: { x: number; y: number }[] = [];
     for (const t of selection.entries.current.values()) if (t.z === z) cells.push({ x: t.x, y: t.y });
@@ -1081,6 +1284,25 @@ export function useMapInteraction(deps: InteractionDeps) {
         emit('Undo');
         return;
       }
+      if (e.kind === 'pen') {
+        try {
+          const touched = await undoEdit(inputs.current.map.id);
+          if (touched.length > 0) {
+            redoTimeline.current.push(e);
+            applyHistory(touched);
+            penAnchors.current = clonePenAnchors(e.anchors);
+            penDrag.current = null;
+            if (inputs.current.activeTool !== 'pen') inputs.current.onToolChange('pen');
+            emit('Undo - pen path back to edit');
+            return;
+          }
+        } catch (err) {
+          console.error('Undo failed', err);
+          emit('Undo failed');
+          return;
+        }
+        continue;
+      }
       try {
         const touched = await undoEdit(inputs.current.map.id);
         if (touched.length > 0) {
@@ -1129,6 +1351,24 @@ export function useMapInteraction(deps: InteractionDeps) {
         emit('Redo');
         return;
       }
+      if (e.kind === 'pen') {
+        try {
+          const touched = await redoEdit(inputs.current.map.id);
+          if (touched.length > 0) {
+            undoTimeline.current.push(e);
+            applyHistory(touched);
+            penAnchors.current = [];
+            penDrag.current = null;
+            emit('Redo');
+            return;
+          }
+        } catch (err) {
+          console.error('Redo failed', err);
+          emit('Redo failed');
+          return;
+        }
+        continue;
+      }
       try {
         const touched = await redoEdit(inputs.current.map.id);
         if (touched.length > 0) {
@@ -1155,6 +1395,12 @@ export function useMapInteraction(deps: InteractionDeps) {
     }
     if (e.button !== 0) return;
 
+    if (spaceRef.current) {
+      e.preventDefault();
+      camera.beginPan(e);
+      return;
+    }
+
     if (scene.pasteGhost.current) {
       const pos = tileAt(e);
       scene.pasteGhost.current = null;
@@ -1173,6 +1419,10 @@ export function useMapInteraction(deps: InteractionDeps) {
     }
 
     const tool = inputs.current.activeTool;
+    if (tool === 'pen') {
+      penDown(e);
+      return;
+    }
     const brush = inputs.current.activeBrush;
     const canBrush = tool === 'brush' && brush != null && brush.serverId != null;
     const zoneTool = isZoneTool(tool);
@@ -1249,7 +1499,14 @@ export function useMapInteraction(deps: InteractionDeps) {
     if (selectByPriority(pos)) {
       beginMarkerDrag(e, pos);
     } else {
-      if (!selection.entries.current.has(`${pos.z},${pos.x},${pos.y}`)) selection.selectTile(pos, false);
+      const onSel = selection.entries.current.has(`${pos.z},${pos.x},${pos.y}`);
+      if (!onSel && !hoverAt(pos).hasTile) {
+        selection.clear();
+        recordSelection(beforeSel);
+        inputs.current.onSelect(null);
+        return;
+      }
+      if (!onSel) selection.selectTile(pos, false);
       scene.moveDest.current = pos;
       scene.moveDrag.current = { from: pos, startX: e.clientX, startY: e.clientY, active: false };
     }
@@ -1265,6 +1522,7 @@ export function useMapInteraction(deps: InteractionDeps) {
       const r = canvasEl.getBoundingClientRect();
       scene.mouseScreen.current = { x: e.clientX - r.left, y: e.clientY - r.top };
     }
+    if (inputs.current.activeTool === 'pen') penMove(e);
     if (creatureStroke.current) {
       applyCreatureAt(tileAt(e));
     } else if (scene.painting.current) {
@@ -1304,6 +1562,7 @@ export function useMapInteraction(deps: InteractionDeps) {
   }
 
   function onMouseUp() {
+    penUp();
     const bs = selection.box.current;
     if (bs) {
       selection.box.current = null;
@@ -1351,6 +1610,10 @@ export function useMapInteraction(deps: InteractionDeps) {
     scene.lastPaintKey.current = null;
   }
 
+  function onDoubleClick() {
+    if (inputs.current.activeTool === 'pen') penFinish();
+  }
+
   function onMouseLeave() {
     if (menu) return;
     if (camera.panning) return;
@@ -1381,6 +1644,10 @@ export function useMapInteraction(deps: InteractionDeps) {
   function onContextMenu(e: React.MouseEvent) {
     e.preventDefault();
     if (modalOpen.current || !canvasRef.current) return;
+    if (inputs.current.activeTool === 'pen') {
+      penCancel();
+      return;
+    }
     if (scene.pasteGhost.current) {
       scene.pasteGhost.current = null;
       emit('Paste cancelled');
@@ -1487,6 +1754,11 @@ export function useMapInteraction(deps: InteractionDeps) {
   React.useEffect(() => {
     const sync = (e: KeyboardEvent) => {
       scene.ctrlDown.current = e.ctrlKey;
+      if (inputs.current.activeTool === 'pen' && !penDrag.current) {
+        const ctrl = e.ctrlKey || e.metaKey;
+        setPenCursorIfChanged(penCursorFor(ctrl, e.altKey));
+        penHot.current = penHotFor(ctrl, e.altKey);
+      }
     };
     const clear = () => {
       scene.ctrlDown.current = false;
@@ -1502,9 +1774,43 @@ export function useMapInteraction(deps: InteractionDeps) {
   }, []);
 
   React.useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+      setSpaceHeld(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpaceHeld(false);
+    };
+    const blur = () => setSpaceHeld(false);
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+
+  React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (inputs.current.activeTool === 'pen') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          penFinish();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          penCancel();
+          return;
+        }
+      }
       if (e.key === 'Escape' && inputs.current.placingWaypoint) {
         inputs.current.onPlaceWaypoint();
         return;
@@ -1515,6 +1821,11 @@ export function useMapInteraction(deps: InteractionDeps) {
         return;
       }
       if (modalOpen.current) return;
+      if (e.altKey && e.code === 'Backspace') {
+        e.preventDefault();
+        fillSelection();
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) {
@@ -1563,9 +1874,12 @@ export function useMapInteraction(deps: InteractionDeps) {
   }, []);
 
   return {
-    handlers: { onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onContextMenu },
+    handlers: { onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onContextMenu, onDoubleClick },
+    pen: { anchorsRef: penAnchors, hoverRef: penHover, hotRef: penHot },
+    penCursor,
     moving,
     boxing,
+    spaceHeld,
     menu,
     gotoForm,
     spawnForm,

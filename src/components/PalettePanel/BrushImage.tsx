@@ -16,19 +16,16 @@ const CELL = 28;
 
 const BrushImage = ({ option, size = 24 }: { option: BrushOption | null; size?: number }) => {
   const { assets } = useAssetsBundle();
-  const items = assets!.items;
-  const outfits = assets!.outfits;
-  const sprPath = assets!.sprPath;
-  const transparency = assets!.transparency;
 
   const [layout, setLayout] = React.useState<BrushSpriteLayout | null>(null);
   const [version, setVersion] = React.useState(0);
 
   React.useEffect(() => {
-    if (!option) {
+    if (!option || !assets) {
       setLayout(null);
       return;
     }
+    const { items, outfits, sprPath, transparency } = assets;
     let cancelled = false;
     (async () => {
       const sid = option.serverId;
@@ -55,7 +52,7 @@ const BrushImage = ({ option, size = 24 }: { option: BrushOption | null; size?: 
     return () => {
       cancelled = true;
     };
-  }, [option, items, outfits, sprPath, transparency]);
+  }, [option, assets]);
 
   return (
     <span

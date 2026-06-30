@@ -29,7 +29,7 @@ export interface PaletteCategorySignal {
 export interface ToolContextValue {
   activeTool: ToolId;
   activeBrush: ActiveBrush | null;
-  penBrush: BrushOption | null;
+  activeTile: BrushOption | null;
   penWidth: number;
   activeHouseId: number | null;
   ctrlErase: boolean;
@@ -47,7 +47,7 @@ export interface ToolContextValue {
   ) => void;
   setActiveTool: (tool: ToolId) => void;
   selectBrush: (brush: ActiveBrush | null) => void;
-  setPenBrush: (brush: BrushOption | null) => void;
+  setActiveTile: (tile: BrushOption | null) => void;
   setPenWidth: (width: number) => void;
   setActiveHouse: (id: number | null) => void;
   setEraserMode: (mode: EraserMode) => void;

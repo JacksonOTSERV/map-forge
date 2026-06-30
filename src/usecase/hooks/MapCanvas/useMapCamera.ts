@@ -28,6 +28,7 @@ export interface MapCamera {
   panMove: (e: React.MouseEvent) => boolean;
   endPan: () => void;
   tileUnderCursor: (e: React.MouseEvent, floorZ: number) => Position;
+  worldUnderCursor: (e: React.MouseEvent) => { x: number; y: number };
   centerOn: (pos: Position) => void;
 }
 
@@ -268,6 +269,13 @@ export function useMapCamera(
     return { x: Math.floor(wx / TILE), y: Math.floor(wy / TILE), z: floorZ };
   }
 
+  function worldUnderCursor(e: React.MouseEvent): { x: number; y: number } {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    const z = zoomRef.current;
+    return { x: ref.current.x + (e.clientX - rect.left) / z, y: ref.current.y + (e.clientY - rect.top) / z };
+  }
+
   function centerOn(pos: Position) {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -279,5 +287,5 @@ export function useMapCamera(
     scheduleSave();
   }
 
-  return { ref, zoomRef, panning, beginPan, panMove, endPan, tileUnderCursor, centerOn };
+  return { ref, zoomRef, panning, beginPan, panMove, endPan, tileUnderCursor, worldUnderCursor, centerOn };
 }

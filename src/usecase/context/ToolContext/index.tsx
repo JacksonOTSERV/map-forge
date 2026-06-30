@@ -2,9 +2,10 @@ import React from 'react';
 
 import { BrushOption } from '~/adapter/biomes';
 import { ToolId, EraserMode } from '~/domain/tools';
+import { getSetting, setSetting } from '~/adapter/settings';
 import { ResolvedBiome, GenerateOptions } from '~/domain/biome';
-import { ActiveBrush, isRevealFriendly, PaletteCategoryId } from '~/domain/palette';
 import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
+import { ActiveBrush, isRevealFriendly, PaletteCategoryId } from '~/domain/palette';
 
 import { PaletteReveal, GenerateSignal, ToolContextValue, ToolProviderProps, PaletteCategorySignal } from './types';
 
@@ -13,8 +14,9 @@ const ToolContext = React.createContext({} as ToolContextValue);
 export const ToolProvider = ({ children }: ToolProviderProps) => {
   const [activeTool, setActiveToolState] = React.useState<ToolId>('select');
   const [activeBrush, setActiveBrush] = React.useState<ActiveBrush | null>(null);
-  const [penBrush, setPenBrush] = React.useState<BrushOption | null>(null);
+  const [activeTile, setActiveTile] = React.useState<BrushOption | null>(null);
   const [penWidth, setPenWidth] = React.useState(1);
+  const tileRestored = React.useRef(false);
   const [activeHouseId, setActiveHouse] = React.useState<number | null>(null);
   const [ctrlErase, setCtrlErase] = React.useState(false);
   const [eraserMode, setEraserMode] = React.useState<EraserMode>('items');
@@ -45,7 +47,26 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
     setActiveBrush(brush);
     setActiveToolState(brush ? 'brush' : 'select');
     setActiveHouse(null);
+    if (brush && brush.serverId != null) {
+      setActiveTile({ name: brush.name, kind: brush.kind, serverId: brush.serverId, paintId: brush.serverId });
+    }
   }, []);
+
+  React.useEffect(() => {
+    getSetting<BrushOption | null>('activeTile', null)
+      .then((saved) => {
+        if (saved && typeof saved.paintId === 'number') setActiveTile(saved);
+      })
+      .catch(() => void 0)
+      .finally(() => {
+        tileRestored.current = true;
+      });
+  }, []);
+
+  React.useEffect(() => {
+    if (!tileRestored.current) return;
+    setSetting('activeTile', activeTile).catch(() => void 0);
+  }, [activeTile]);
 
   const revealInPalette = React.useCallback((category: PaletteCategoryId, serverId: number, name?: string) => {
     setReveal((r) => ({ category, serverId, name, nonce: (r?.nonce ?? 0) + 1 }));
@@ -92,7 +113,7 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
     () => ({
       activeTool,
       activeBrush,
-      penBrush,
+      activeTile,
       penWidth,
       activeHouseId,
       ctrlErase,
@@ -105,7 +126,7 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       requestGenerate,
       setActiveTool,
       selectBrush,
-      setPenBrush,
+      setActiveTile,
       setPenWidth,
       setActiveHouse,
       setEraserMode,
@@ -118,7 +139,7 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
     [
       activeTool,
       activeBrush,
-      penBrush,
+      activeTile,
       penWidth,
       activeHouseId,
       ctrlErase,
@@ -131,7 +152,7 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       requestGenerate,
       setActiveTool,
       selectBrush,
-      setPenBrush,
+      setActiveTile,
       setPenWidth,
       setActiveHouse,
       setEraserMode,

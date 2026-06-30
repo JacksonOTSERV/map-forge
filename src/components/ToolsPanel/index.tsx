@@ -1,5 +1,5 @@
-import { useRef, useState, ComponentType } from 'react';
-import { Brush, Check, Eraser, Layers2, Crosshair, MousePointer2, GripHorizontal } from 'lucide-react';
+import { useRef, useState, useEffect, ComponentType } from 'react';
+import { Brush, Check, Eraser, Layers2, PenTool, Crosshair, MousePointer2, GripHorizontal } from 'lucide-react';
 import {
   IconHome,
   IconFlag3,
@@ -17,13 +17,19 @@ import {
 import { cn } from '~/usecase/classNames';
 import { Hint } from '~/components/commons/ui/tooltip';
 import { useTool } from '~/usecase/context/ToolContext';
+import { Slider } from '~/components/commons/ui/slider';
+import BrushImage from '~/components/PalettePanel/BrushImage';
+import BrushSelect from '~/components/PalettePanel/BrushSelect';
+import { BrushOption, loadBrushOptions } from '~/adapter/biomes';
 import { DragHandleProps } from '~/components/Dock/DockablePanel';
+import { useAssetsBundle } from '~/usecase/context/AssetsContext';
 import { useEditorSettings } from '~/usecase/context/EditorSettingsContext';
 import { TOOLS, ToolId, EraserMode, isZoneTool, isHouseTool, ERASER_MODES } from '~/domain/tools';
 
 const ICONS: Record<ToolId, ComponentType<{ className?: string }>> = {
   select: MousePointer2,
   brush: Brush,
+  pen: PenTool,
   eraser: Eraser,
   spawn: Crosshair,
   zone_pz: IconShieldHalf,
@@ -141,6 +147,60 @@ const EraserTool = ({ selected, mode, onActivate, onPickMode }: EraserToolProps)
   );
 };
 
+const TileSwatch = () => {
+  const { dataDir } = useAssetsBundle();
+  const { activeTile, setActiveTile, penWidth, setPenWidth } = useTool();
+  const [options, setOptions] = useState<BrushOption[]>([]);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    loadBrushOptions(dataDir)
+      .then((list) => setOptions(list.filter((o) => o.kind === 'ground')))
+      .catch((err) => console.error('Failed to load tile options', err));
+  }, [dataDir]);
+
+  const open = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setAnchor({ top: r.top, left: r.right + 8 });
+  };
+
+  const pick = (name: string) => setActiveTile(options.find((o) => o.name === name) ?? null);
+
+  return (
+    <div className="relative flex w-full flex-col items-center">
+      <Hint side="right" label={activeTile ? `Active tile: ${activeTile.name}` : 'Pick an active tile'}>
+        <button
+          ref={btnRef}
+          onClick={open}
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded border border-border/60 bg-muted/40 hover:bg-item-hover"
+        >
+          {activeTile ? (
+            <BrushImage size={26} option={activeTile} />
+          ) : (
+            <Brush className="h-[18px] w-[18px] text-muted-foreground" />
+          )}
+        </button>
+      </Hint>
+
+      {anchor && (
+        <>
+          <div className="fixed inset-0 z-40" onMouseDown={() => setAnchor(null)} />
+          <div
+            style={{ top: anchor.top, left: anchor.left }}
+            className="fixed z-50 flex w-56 flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-island"
+          >
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Active tile</span>
+            <BrushSelect onChange={pick} options={options} placeholder="Select ground" value={activeTile?.name ?? ''} />
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Pen width {penWidth}</span>
+            <Slider max={5} min={1} step={0.5} value={[penWidth]} onValueChange={([v]) => setPenWidth(v)} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 interface ToolsPanelProps {
   dragHandle?: DragHandleProps;
 }
@@ -216,6 +276,8 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
       })}
 
       <div className="mt-auto flex w-full flex-col items-center gap-0.5 pt-1">
+        <div className="my-1 h-px w-5 bg-border/60" />
+        <TileSwatch />
         <div className="my-1 h-px w-5 bg-border/60" />
         <Hint side="right" label="Show creatures and NPCs">
           <button

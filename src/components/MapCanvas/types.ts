@@ -148,6 +148,8 @@ export interface MapCanvasContextInputs {
   activeTool: ToolId;
   eraserMode: EraserMode;
   activeBrush: ActiveBrush | null;
+  activeTile: { serverId: number; paintId: number } | null;
+  penWidth: number;
   activeHouseId: number | null;
   onToolChange: (tool: ToolId) => void;
   onSelectBrush: (brush: ActiveBrush | null) => void;

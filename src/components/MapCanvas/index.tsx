@@ -19,6 +19,7 @@ import { useEditorSettings } from '~/usecase/context/EditorSettingsContext';
 import { useChunkTooltips } from '~/usecase/hooks/MapCanvas/useChunkTooltips';
 import { useMapInteraction } from '~/usecase/hooks/MapCanvas/useMapInteraction';
 
+import PenOverlay from './PenOverlay';
 import RenderStats from './RenderStats';
 import TileContextMenu from './TileContextMenu';
 import GotoPositionForm from './GotoPositionForm';
@@ -86,6 +87,8 @@ const MapCanvas = (props: MapCanvasProps) => {
     activeTool: tool.activeTool,
     eraserMode: tool.eraserMode,
     activeBrush: tool.activeBrush,
+    activeTile: tool.activeTile,
+    penWidth: tool.penWidth,
     activeHouseId: tool.activeHouseId,
     onToolChange: tool.setActiveTool,
     onSelectBrush: tool.selectBrush,
@@ -187,6 +190,12 @@ const MapCanvas = (props: MapCanvasProps) => {
         e.preventDefault();
         const nz = stepZoom(camera.zoomRef.current, -1);
         if (nz !== camera.zoomRef.current) i.onZoomChange(nz);
+      } else if (e.code === 'KeyV') {
+        i.onToolChange('select');
+      } else if (e.code === 'KeyB') {
+        i.onToolChange('brush');
+      } else if (e.code === 'KeyE') {
+        i.onToolChange('eraser');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -237,22 +246,36 @@ const MapCanvas = (props: MapCanvasProps) => {
     return () => el.classList.remove('panning-grab');
   }, [camera.panning]);
 
+  React.useEffect(() => {
+    if (activeTool !== 'select') selection.clear();
+  }, [activeTool]);
+
+  React.useEffect(() => {
+    if (tool.activeBrush || tool.activeTile) selection.clear();
+  }, [tool.activeBrush, tool.activeTile]);
+
   const paintable =
     (activeTool === 'brush' && activeBrush != null && activeBrush.serverId != null) ||
     (activeTool === 'house' && tool.activeHouseId != null);
-  const canvasCursor = props.placingWaypoint
+  const canvasCursor = interaction.spaceHeld || camera.panning
+    ? camera.panning
+      ? 'grabbing'
+      : 'grab'
+    : props.placingWaypoint
     ? WAYPOINT_CURSOR
-    : paintable
-      ? DRAW_CURSOR
-      : activeTool === 'eraser' ||
-          activeTool === 'spawn' ||
-          isZoneTool(activeTool) ||
-          isHouseTool(activeTool) ||
-          interaction.boxing
-        ? 'crosshair'
-        : camera.panning || interaction.moving
-          ? 'grabbing'
-          : 'default';
+    : activeTool === 'pen'
+      ? interaction.penCursor
+      : paintable
+        ? DRAW_CURSOR
+        : activeTool === 'eraser' ||
+            activeTool === 'spawn' ||
+            isZoneTool(activeTool) ||
+            isHouseTool(activeTool) ||
+            interaction.boxing
+          ? 'crosshair'
+          : camera.panning || interaction.moving
+            ? 'grabbing'
+            : 'default';
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -264,9 +287,11 @@ const MapCanvas = (props: MapCanvasProps) => {
         onMouseMove={interaction.handlers.onMouseMove}
         onMouseLeave={interaction.handlers.onMouseLeave}
         style={{ cursor: canvasCursor, display: 'block' }}
+        onDoubleClick={interaction.handlers.onDoubleClick}
         onContextMenu={interaction.handlers.onContextMenu}
       />
       <canvas aria-hidden ref={overlayRef} className="pointer-events-none absolute left-0 top-0 h-full w-full" />
+      {activeTool === 'pen' && <PenOverlay camera={camera} pen={interaction.pen} />}
       <img
         alt=""
         aria-hidden
