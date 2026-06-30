@@ -311,6 +311,7 @@ fn with_tile<R>(x: u16, y: u16, z: u8, f: impl FnOnce(&mut TileAcc) -> R) -> Opt
 pub fn register(lua: &Lua) -> mlua::Result<()> {
 	let nosbor: Table = lua.globals().get("nosbor")?;
 	nosbor.set("_formats", lua.create_table()?)?;
+	lua.globals().set("forge", nosbor.clone())?;
 
 	let map = lua.create_table()?;
 	map.set(
@@ -1039,6 +1040,24 @@ mod tests {
 		assert_eq!(c.assets.as_ref().map(|a| a.ext.as_str()), Some("pak"));
 		assert_eq!(c.assets.as_ref().map(|a| a.label.as_str()), Some("Assets"));
 		assert_eq!(c.assets.as_ref().and_then(|a| a.itemdb.as_deref()), Some("items.db"));
+	}
+
+	#[test]
+	fn forge_alias_drives_same_registry() {
+		let host = host_with(
+			"forge.register_format{ ext='def', name='Items', kind='itemdb', read=function(buf, len)\n\
+			   forge.items.begin()\n\
+			   forge.items.add(4526, { name='grass', ground=true })\n\
+			   forge.items.finish()\n\
+			 end }",
+		);
+		let read = format_read(&host.lua, "def").unwrap();
+		let db = {
+			let _scope = ScopedItemBuild::enter();
+			call_read(&read, &[0u8]).unwrap();
+			take_itemdb().unwrap()
+		};
+		assert_eq!(db.items.get(&4526).map(|d| d.name.as_str()), Some("grass"));
 	}
 
 	#[test]
