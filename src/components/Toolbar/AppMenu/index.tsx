@@ -256,6 +256,7 @@ const AppMenu = ({
           <MenubarSeparator />
           <MenubarCheckboxItem checked={showBlocking} onCheckedChange={toggleBlocking} onSelect={(e) => e.preventDefault()}>
             Show blocking
+            <MenubarShortcut>O</MenubarShortcut>
           </MenubarCheckboxItem>
           <MenubarCheckboxItem checked={showShade} onCheckedChange={toggleShade} onSelect={(e) => e.preventDefault()}>
             Shade lower floors
@@ -263,10 +264,12 @@ const AppMenu = ({
           </MenubarCheckboxItem>
           <MenubarCheckboxItem checked={showWaypoints} onCheckedChange={toggleWaypoints} onSelect={(e) => e.preventDefault()}>
             Show waypoints
+            <MenubarShortcut>Shift+W</MenubarShortcut>
           </MenubarCheckboxItem>
           <MenubarSeparator />
           <MenubarCheckboxItem checked={showTooltips} onCheckedChange={toggleTooltips} onSelect={(e) => e.preventDefault()}>
             Show tooltips
+            <MenubarShortcut>Y</MenubarShortcut>
           </MenubarCheckboxItem>
           {TOOLTIP_TYPE_GROUPS.map((t) => (
             <MenubarCheckboxItem

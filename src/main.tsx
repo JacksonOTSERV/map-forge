@@ -74,7 +74,19 @@ const App = () => {
     setStatus,
     setError
   } = useAssetsBundle();
-  const { copyPositionFormat, reloadGeneral, reloadEditor, toggleShade } = useEditorSettings();
+  const {
+    copyPositionFormat,
+    reloadGeneral,
+    reloadEditor,
+    toggleShade,
+    toggleAutomagic,
+    toggleCreatures,
+    toggleTooltips,
+    toggleBlocking,
+    toggleHouses,
+    toggleWaypoints,
+    toggleSpawns
+  } = useEditorSettings();
   const { setPaletteCategory } = useTool();
 
   const [minimapOpen, setMinimapOpen] = useSetting('minimapOpen', false);
@@ -354,7 +366,14 @@ const App = () => {
     openMapStatistics,
     openPreferences: () => openPreferences(),
     refreshAssets: retryAssets,
-    toggleShade
+    toggleShade,
+    toggleAutomagic,
+    toggleCreatures,
+    toggleTooltips,
+    toggleBlocking,
+    toggleHouses,
+    toggleWaypoints,
+    toggleSpawns
   });
 
   savingRef.current = !!saving;

@@ -14,6 +14,13 @@ interface ShortcutActions {
   openMapStatistics: () => void;
   refreshAssets: () => void;
   toggleShade: () => void;
+  toggleAutomagic: () => void;
+  toggleCreatures: () => void;
+  toggleTooltips: () => void;
+  toggleBlocking: () => void;
+  toggleHouses: () => void;
+  toggleWaypoints: () => void;
+  toggleSpawns: () => void;
 }
 
 export const useAppShortcuts = (actions: ShortcutActions) => {
@@ -29,6 +36,16 @@ export const useAppShortcuts = (actions: ShortcutActions) => {
         e.preventDefault();
         if (e.shiftKey) a.handleSaveAs();
         else a.handleSave();
+        return;
+      }
+      if (key === 'a') {
+        e.preventDefault();
+        a.toggleAutomagic();
+        return;
+      }
+      if (key === 'h') {
+        e.preventDefault();
+        a.toggleHouses();
         return;
       }
       if (e.shiftKey) return;
@@ -58,15 +75,39 @@ export const useAppShortcuts = (actions: ShortcutActions) => {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (e.key.toLowerCase() === 'm') {
+      const key = e.key.toLowerCase();
+      if (e.altKey) {
+        if (key === 's') {
+          e.preventDefault();
+          ref.current.toggleSpawns();
+        }
+        return;
+      }
+      if (e.shiftKey) {
+        if (key === 'w') {
+          e.preventDefault();
+          ref.current.toggleWaypoints();
+        }
+        return;
+      }
+      if (key === 'm') {
         e.preventDefault();
         ref.current.toggleMinimap();
-      } else if (e.key.toLowerCase() === 'q') {
+      } else if (key === 'q') {
         e.preventDefault();
         ref.current.toggleShade();
+      } else if (key === 'f') {
+        e.preventDefault();
+        ref.current.toggleCreatures();
+      } else if (key === 'y') {
+        e.preventDefault();
+        ref.current.toggleTooltips();
+      } else if (key === 'o') {
+        e.preventDefault();
+        ref.current.toggleBlocking();
       } else if (e.key === 'F8') {
         e.preventDefault();
         ref.current.openMapStatistics();

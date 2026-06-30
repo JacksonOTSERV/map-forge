@@ -158,6 +158,7 @@ export function useMapCamera(
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       const key = normalize(e.key);
       if (!(key in dirs)) return;
       const t = e.target as HTMLElement | null;

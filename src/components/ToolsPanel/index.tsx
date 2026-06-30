@@ -280,7 +280,7 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
         <div className="my-1 h-px w-5 bg-border/60" />
         <TileSwatch />
         <div className="my-1 h-px w-5 bg-border/60" />
-        <Hint side="right" label="Show creatures and NPCs">
+        <Hint side="right" label="Show creatures and NPCs (F)">
           <button
             onClick={toggleCreatures}
             className={cn(
@@ -291,7 +291,7 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
             <IconSpider className="h-[18px] w-[18px]" />
           </button>
         </Hint>
-        <Hint side="right" label="Show spawn areas">
+        <Hint side="right" label="Show spawn areas (Alt+S)">
           <button
             onClick={toggleSpawns}
             className={cn(
@@ -302,7 +302,7 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
             <IconViewfinder className="h-[18px] w-[18px]" />
           </button>
         </Hint>
-        <Hint side="right" label="Show houses">
+        <Hint side="right" label="Show houses (Ctrl+H)">
           <button
             onClick={toggleHouses}
             className={cn(
@@ -313,7 +313,7 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
             <IconHome className="h-[18px] w-[18px]" />
           </button>
         </Hint>
-        <Hint side="right" label="Show tooltips">
+        <Hint side="right" label="Show tooltips (Y)">
           <button
             onClick={toggleTooltips}
             className={cn(
@@ -335,7 +335,7 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
             <IconShieldHalf className="h-[18px] w-[18px]" />
           </button>
         </Hint>
-        <Hint side="right" label="Automatic borders - auto-border, walls, tables, carpets, mountains">
+        <Hint side="right" label="Automatic borders - auto-border, walls, tables, carpets, mountains (Ctrl+A)">
           <button
             onClick={toggleAutomagic}
             className={cn(
