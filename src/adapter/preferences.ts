@@ -45,6 +45,8 @@ export interface GeneralConfig {
   spawnSize: number;
   spawnTime: number;
   infiniteMouse: boolean;
+  backupOnSave: boolean;
+  backupCount: number;
 }
 
 export const defaultGeneralConfig: GeneralConfig = {
@@ -52,7 +54,9 @@ export const defaultGeneralConfig: GeneralConfig = {
   copyPositionFormat: DEFAULT_COPY_POSITION_FORMAT,
   spawnSize: 3,
   spawnTime: 60,
-  infiniteMouse: true
+  infiniteMouse: true,
+  backupOnSave: true,
+  backupCount: 5
 };
 
 export async function loadGeneralConfig(): Promise<GeneralConfig> {

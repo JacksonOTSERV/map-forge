@@ -124,6 +124,10 @@ export async function saveOtbm(mapId: number, path: string, onProgress?: (value:
   }
 }
 
+export async function backupMap(path: string, keep: number): Promise<void> {
+  await invoke('backup_map', { path, keep });
+}
+
 export async function getTowns(mapId: number): Promise<Town[]> {
   return invoke<Town[]>('get_towns', { mapId });
 }

@@ -103,6 +103,40 @@ const GeneralTab = ({ config, onResetLayout, onChange }: GeneralTabProps) => {
 
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col">
+          <span className="text-xs font-medium">Backup on save</span>
+          <span className="text-[10px] text-muted-foreground">Snapshot the map and its XML sidecars on every save</span>
+        </div>
+        <Checkbox checked={config.backupOnSave} onCheckedChange={(v) => onChange({ ...config, backupOnSave: v === true })} />
+      </div>
+
+      {config.backupOnSave && (
+        <>
+          <div className="h-px bg-border" />
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col">
+              <span className="text-xs font-medium">Backups to keep</span>
+              <span className="text-[10px] text-muted-foreground">Older snapshots beyond this count are pruned</span>
+            </div>
+            <Select value={String(config.backupCount)} onValueChange={(v) => onChange({ ...config, backupCount: Number(v) })}>
+              <SelectTrigger className="h-7 w-16">
+                <SelectValue>{config.backupCount}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
+
+      <div className="h-px bg-border" />
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col">
           <span className="text-xs font-medium">Panel layout</span>
           <span className="text-[10px] text-muted-foreground">Restore docks and floating panels to defaults</span>
         </div>

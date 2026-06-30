@@ -3,10 +3,11 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 
 import { MapMeta } from '~/domain/map';
 import { snapZoom } from '~/usecase/zoom';
+import { loadGeneralConfig } from '~/adapter/preferences';
 import { getMapView, setMapView } from '~/adapter/mapViews';
-import { addRecentMap, loadRecentMaps, clearRecentMaps } from '~/adapter/recentMaps';
-import { newOtbm, openOtbm, closeMap, saveOtbm, openScriptedMap, saveScriptedMap } from '~/adapter/map';
 import { registeredFormats, itemNames as fetchItemNames } from '~/adapter/scripts';
+import { addRecentMap, loadRecentMaps, clearRecentMaps } from '~/adapter/recentMaps';
+import { newOtbm, openOtbm, closeMap, saveOtbm, backupMap, openScriptedMap, saveScriptedMap } from '~/adapter/map';
 import { loadOtb, LoadedAssets, defaultDataDir, resolveMapItems, peekOtbmVersion, loadItemNamesPath } from '~/adapter/assets';
 
 const NEW_MAP_WIDTH = 1024;
@@ -303,6 +304,11 @@ export const useMapTabs = (
         await saveScriptedMap(tab.map.id, path);
       }
       await onAfterSave?.(tab.map.id, path);
+      void loadGeneralConfig()
+        .then((cfg) => {
+          if (cfg.backupOnSave) return backupMap(path, Math.min(5, Math.max(1, cfg.backupCount)));
+        })
+        .catch((e) => console.error('Backup failed', e));
       const name = path.split(/[\\/]/).pop() ?? tab.title;
       updateActive({ path, title: name });
       setStatus(`Saved ${name}`);

@@ -27,6 +27,50 @@ pub fn write_file_text(path: String, contents: String) -> Result<(), String> {
 	fs::write(&path, contents).map_err(|e| format!("Failed to write file {}: {}", path, e))
 }
 
+#[tauri::command]
+pub async fn backup_map(path: String, keep: u32) -> Result<(), String> {
+	if keep == 0 {
+		return Ok(());
+	}
+	let src = PathBuf::from(&path);
+	let dir = src.parent().ok_or("no parent dir")?.to_path_buf();
+	let stem = src.file_stem().and_then(|s| s.to_str()).ok_or("no file stem")?.to_string();
+	let backups_root = dir.join("backups").join(&stem);
+	let ts = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_err(|e| e.to_string())?
+		.as_secs();
+	let snap = backups_root.join(ts.to_string());
+	fs::create_dir_all(&snap).map_err(|e| e.to_string())?;
+	let prefix_dot = format!("{}.", stem);
+	let prefix_dash = format!("{}-", stem);
+	for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+		let p = entry.path();
+		if !p.is_file() {
+			continue;
+		}
+		let name = match entry.file_name().to_str() {
+			Some(n) => n.to_string(),
+			None => continue,
+		};
+		if name.starts_with(&prefix_dot) || name.starts_with(&prefix_dash) {
+			let _ = fs::copy(&p, snap.join(&name));
+		}
+	}
+	let mut snaps: Vec<PathBuf> = fs::read_dir(&backups_root)
+		.map_err(|e| e.to_string())?
+		.flatten()
+		.map(|e| e.path())
+		.filter(|p| p.is_dir())
+		.collect();
+	snaps.sort();
+	while snaps.len() > keep as usize {
+		let old = snaps.remove(0);
+		let _ = fs::remove_dir_all(old);
+	}
+	Ok(())
+}
+
 pub fn data_dir_for(version: u32, client_data: Option<String>) -> String {
 	let exe = std::env::current_exe().ok();
 	let exe_dir = exe.as_deref().and_then(|e| e.parent());
