@@ -420,6 +420,7 @@ fn serialize_towns(w: &mut NodeWriter, model: &MapModel) {
 fn build_index(model: &MapModel, chunks: Vec<ChunkEntry>, min_x: u16, min_y: u16, max_x: u16, max_y: u16, house_tile_count: u32) -> MapIndex {
 	MapIndex {
 		chunks,
+		source_size: 0,
 		min_x,
 		min_y,
 		max_x,
@@ -749,7 +750,8 @@ pub async fn save_otbm(
 		};
 
 		let mut report = |value: f64, label: &str| emit(value, label);
-		let (out, idx) = build_otbm_bytes(model, source.as_deref(), &door_set, &mut report)?;
+		let (out, mut idx) = build_otbm_bytes(model, source.as_deref(), &door_set, &mut report)?;
+		idx.source_size = out.len() as u64;
 		emit(0.92, "Writing file...");
 		fs::write(&path, &out).map_err(|e| format!("Failed to write {}: {}", path, e))?;
 		let sidecar = std::path::Path::new(&path).with_extension("otmi").to_string_lossy().to_string();

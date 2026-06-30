@@ -1,7 +1,7 @@
 use crate::map_model::Town;
 
 const FOOTER_MAGIC: u32 = 0x4E46_4C52;
-const FOOTER_VERSION: u16 = 7;
+const FOOTER_VERSION: u16 = 8;
 
 pub struct ChunkEntry {
 	pub z: u8,
@@ -14,6 +14,7 @@ pub struct ChunkEntry {
 
 pub struct MapIndex {
 	pub chunks: Vec<ChunkEntry>,
+	pub source_size: u64,
 	pub min_x: u16,
 	pub min_y: u16,
 	pub max_x: u16,
@@ -42,6 +43,7 @@ impl MapIndex {
 			body.extend_from_slice(&c.end.to_le_bytes());
 			body.extend_from_slice(&c.count.to_le_bytes());
 		}
+		body.extend_from_slice(&self.source_size.to_le_bytes());
 		body.extend_from_slice(&self.min_x.to_le_bytes());
 		body.extend_from_slice(&self.min_y.to_le_bytes());
 		body.extend_from_slice(&self.max_x.to_le_bytes());
@@ -101,6 +103,7 @@ impl MapIndex {
 				count: r.u32()?,
 			});
 		}
+		let source_size = r.u64()?;
 		let min_x = r.u16()?;
 		let min_y = r.u16()?;
 		let max_x = r.u16()?;
@@ -132,6 +135,7 @@ impl MapIndex {
 		}
 		Some(MapIndex {
 			chunks,
+			source_size,
 			min_x,
 			min_y,
 			max_x,
@@ -190,13 +194,14 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn footer_round_trips_through_tail() {
+	fn footer_round_trips() {
 		let idx = MapIndex {
 			chunks: vec![
 				ChunkEntry { z: 7, cx: 10, cy: 20, start: 100, end: 5000, count: 42 },
 				ChunkEntry { z: 7, cx: 11, cy: 20, start: 5000, end: 9000, count: 17 },
 				ChunkEntry { z: 8, cx: 10, cy: 20, start: 9000, end: 9500, count: 3 },
 			],
+			source_size: 9876,
 			min_x: 1000,
 			min_y: 2000,
 			max_x: 1200,
@@ -212,11 +217,10 @@ mod tests {
 			towns: vec![Town { id: 1, name: "Thais".to_string(), x: 100, y: 200, z: 7 }],
 			house_tile_count: 12,
 		};
-		let mut file = vec![0xAAu8; 64];
-		file.extend_from_slice(&idx.encode());
 
-		let got = MapIndex::decode(&file).expect("footer decodes");
+		let got = MapIndex::decode(&idx.encode()).expect("footer decodes");
 		assert_eq!(got.chunks.len(), 3);
+		assert_eq!(got.source_size, 9876);
 		assert_eq!(got.description, "Test Map");
 		assert_eq!(got.towns.len(), 1);
 		assert_eq!(got.towns[0].name, "Thais");

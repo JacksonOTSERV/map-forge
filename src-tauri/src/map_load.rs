@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::Read;
 
 use tauri::ipc::Response;
 use tauri::Emitter;
@@ -21,28 +21,13 @@ fn read_head(path: &std::path::Path, max: usize) -> Result<Vec<u8>, String> {
 
 fn read_footer_index(path: &std::path::Path) -> Option<MapIndex> {
 	let sidecar = path.with_extension("otmi");
-	if let Ok(bytes) = std::fs::read(&sidecar) {
-		if let Some(idx) = MapIndex::decode(&bytes) {
-			return Some(idx);
-		}
-	}
-	let mut f = std::fs::File::open(path).ok()?;
-	let size = f.metadata().ok()?.len();
-	if size < 8 {
+	let bytes = std::fs::read(&sidecar).ok()?;
+	let idx = MapIndex::decode(&bytes)?;
+	let size = std::fs::metadata(path).ok()?.len();
+	if idx.source_size != size {
 		return None;
 	}
-	f.seek(SeekFrom::End(-8)).ok()?;
-	let mut tail8 = [0u8; 8];
-	f.read_exact(&mut tail8).ok()?;
-	let body_len = u32::from_le_bytes([tail8[0], tail8[1], tail8[2], tail8[3]]) as u64;
-	let total = body_len.checked_add(8)?;
-	if total > size {
-		return None;
-	}
-	f.seek(SeekFrom::End(-(total as i64))).ok()?;
-	let mut tail = vec![0u8; total as usize];
-	f.read_exact(&mut tail).ok()?;
-	MapIndex::decode(&tail)
+	Some(idx)
 }
 
 pub(crate) struct OtbmCollector<'a> {
