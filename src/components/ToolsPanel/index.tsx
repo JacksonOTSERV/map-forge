@@ -2,7 +2,6 @@ import { useRef, useState, useEffect, ComponentType } from 'react';
 import { Brush, Check, Eraser, Layers2, PenTool, Crosshair, MousePointer2, GripHorizontal, Skull } from 'lucide-react';
 import {
   IconHome,
-  IconFlag3,
   IconSpider,
   IconSwords,
   IconLogout,
@@ -219,16 +218,17 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
     automagic,
     showSpawns,
     showCreatures,
-    showWaypoints,
     showHouses,
     showTooltips,
     toggleSpawns,
     toggleAutomagic,
     toggleCreatures,
-    toggleWaypoints,
     toggleHouses,
-    toggleTooltips
+    toggleTooltips,
+    zoneVisibility,
+    setAllZones
   } = useEditorSettings();
+  const anyZoneVisible = zoneVisibility.pz || zoneVisibility.nopvp || zoneVisibility.nologout || zoneVisibility.pvp;
 
   return (
     <div className="flex h-full flex-col items-center gap-0.5 overflow-y-auto rounded-lg bg-card p-1 shadow-island">
@@ -302,17 +302,6 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
             <IconViewfinder className="h-[18px] w-[18px]" />
           </button>
         </Hint>
-        <Hint side="right" label="Show waypoints">
-          <button
-            onClick={toggleWaypoints}
-            className={cn(
-              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
-              showWaypoints ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
-            )}
-          >
-            <IconFlag3 className="h-[18px] w-[18px]" />
-          </button>
-        </Hint>
         <Hint side="right" label="Show houses">
           <button
             onClick={toggleHouses}
@@ -333,6 +322,17 @@ const ToolsPanel = ({ dragHandle }: ToolsPanelProps) => {
             )}
           >
             <IconMessage2 className="h-[18px] w-[18px]" />
+          </button>
+        </Hint>
+        <Hint side="right" label={anyZoneVisible ? 'Hide all zones' : 'Show all zones'}>
+          <button
+            onClick={() => setAllZones(!anyZoneVisible)}
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors',
+              anyZoneVisible ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-item-hover hover:text-foreground'
+            )}
+          >
+            <IconShieldHalf className="h-[18px] w-[18px]" />
           </button>
         </Hint>
         <Hint side="right" label="Automatic borders - auto-border, walls, tables, carpets, mountains">

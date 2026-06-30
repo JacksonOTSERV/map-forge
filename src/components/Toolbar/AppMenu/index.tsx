@@ -87,6 +87,8 @@ const AppMenu = ({
     toggleShade,
     showTooltips,
     toggleTooltips,
+    showWaypoints,
+    toggleWaypoints,
     tooltipTypes,
     toggleTooltipTypes,
     selectionMode,
@@ -258,6 +260,9 @@ const AppMenu = ({
           <MenubarCheckboxItem checked={showShade} onCheckedChange={toggleShade} onSelect={(e) => e.preventDefault()}>
             Shade lower floors
             <MenubarShortcut>Q</MenubarShortcut>
+          </MenubarCheckboxItem>
+          <MenubarCheckboxItem checked={showWaypoints} onCheckedChange={toggleWaypoints} onSelect={(e) => e.preventDefault()}>
+            Show waypoints
           </MenubarCheckboxItem>
           <MenubarSeparator />
           <MenubarCheckboxItem checked={showTooltips} onCheckedChange={toggleTooltips} onSelect={(e) => e.preventDefault()}>
