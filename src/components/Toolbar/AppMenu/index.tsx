@@ -2,9 +2,11 @@ import React from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Save, FilePlus, FolderOpen } from 'lucide-react';
 
+import { openDataDir } from '~/adapter/assets';
 import { openTilesetEditor } from '~/adapter/windows';
 import { TOOLTIP_TYPE_GROUPS } from '~/domain/tooltips';
 import { PaletteCategoryId, PALETTE_CATEGORIES } from '~/domain/palette';
+import { useAssetsBundle } from '~/usecase/context/AssetsContext';
 import { useEditorSettings } from '~/usecase/context/EditorSettingsContext';
 import {
   Menubar,
@@ -92,6 +94,7 @@ const AppMenu = ({
     compensateSelection,
     toggleCompensateSelection
   } = useEditorSettings();
+  const { dataDir } = useAssetsBundle();
   const anyZoneVisible = zoneVisibility.pz || zoneVisibility.nopvp || zoneVisibility.nologout || zoneVisibility.pvp;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
@@ -309,6 +312,11 @@ const AppMenu = ({
           <MenubarCheckboxItem checked={showRenderStats} onCheckedChange={toggleRenderStats} onSelect={(e) => e.preventDefault()}>
             Show render stats
           </MenubarCheckboxItem>
+          <MenubarSeparator />
+          <MenubarItem disabled={!dataDir} onSelect={() => void openDataDir(dataDir.replace(/[\\/][^\\/]+$/, ''))}>
+            <FolderOpen className="mr-2 h-3.5 w-3.5" />
+            Open Data Folder
+          </MenubarItem>
           <MenubarSeparator />
           <MenubarItem onSelect={onAbout}>About</MenubarItem>
         </MenubarContent>
