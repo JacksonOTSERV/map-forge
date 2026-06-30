@@ -65,8 +65,6 @@ const ClientVersionTab = ({ config, onChange }: ClientVersionTabProps) => {
     [config.paths]
   );
 
-  const available = VERSIONS.filter((cv) => !configured.includes(cv.value));
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-x-5 whitespace-nowrap">
@@ -78,7 +76,7 @@ const ClientVersionTab = ({ config, onChange }: ClientVersionTabProps) => {
             </SelectTrigger>
             <SelectContent>
               {VERSIONS.map((cv) => (
-                <SelectItem key={cv.value} value={String(cv.value)}>
+                <SelectItem key={cv.value} value={String(cv.value)} textValue={String(cv.value)}>
                   {cv.label}
                 </SelectItem>
               ))}
@@ -120,20 +118,23 @@ const ClientVersionTab = ({ config, onChange }: ClientVersionTabProps) => {
             </div>
           )}
         </div>
-        {available.length > 0 && (
-          <Select key={addKey} onValueChange={(v) => void addVersion(Number(v))}>
-            <SelectTrigger className="h-7 w-48 text-muted-foreground">
-              <SelectValue placeholder="+ Add another version" />
-            </SelectTrigger>
-            <SelectContent>
-              {available.map((cv) => (
-                <SelectItem key={cv.value} value={String(cv.value)}>
-                  {cv.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Select key={addKey} onValueChange={(v) => void addVersion(Number(v))}>
+          <SelectTrigger className="h-7 w-48 text-muted-foreground">
+            <SelectValue placeholder="+ Add another version" />
+          </SelectTrigger>
+          <SelectContent>
+            {VERSIONS.map((cv) => (
+              <SelectItem
+                key={cv.value}
+                value={String(cv.value)}
+                textValue={String(cv.value)}
+                disabled={configured.includes(cv.value)}
+              >
+                {cv.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );

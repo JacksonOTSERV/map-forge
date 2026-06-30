@@ -719,5 +719,41 @@ export const CLIENT_VERSIONS: ClientVersion[] = [
     sprSignature: 0x57bbd603,
     supportsAlphaChannel: false,
     supportsFrameDurations: true
-  }
+  },
+  ...(
+    [
+      [1100, '11.00'],
+      [1102, '11.02'],
+      [1140, '11.40'],
+      [1150, '11.50'],
+      [1180, '11.80'],
+      [1200, '12.00'],
+      [1220, '12.20'],
+      [1230, '12.30'],
+      [1240, '12.40'],
+      [1260, '12.60'],
+      [1270, '12.70'],
+      [1280, '12.80'],
+      [1290, '12.90'],
+      [1300, '13.00'],
+      [1310, '13.10'],
+      [1320, '13.20'],
+      [1330, '13.30'],
+      [1340, '13.40'],
+      [1400, '14.00'],
+      [1410, '14.10'],
+      [1500, '15.00'],
+      [1510, '15.10'],
+      [1520, '15.20'],
+      [1530, '15.30']
+    ] as const
+  ).map(([value, label]) => ({
+    value,
+    label,
+    datSignature: 0,
+    sprSignature: 0,
+    supportsExtended: true,
+    supportsAlphaChannel: false,
+    supportsFrameDurations: true
+  }))
 ];
