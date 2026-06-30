@@ -20,6 +20,10 @@
 		"core:window:allow-hide",
 		"core:window:allow-set-focus",
 		"core:window:allow-set-cursor-position",
+		"updater:default",
+		"process:default",
+		"process:allow-restart",
+		"opener:default",
 		"mcp-bridge:default"
 	]
 }

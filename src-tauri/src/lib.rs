@@ -87,7 +87,10 @@ pub fn run() {
 	let client_id_state: ClientIdState = Arc::new(Mutex::new(HashMap::new()));
 
 	let mut builder = tauri::Builder::default()
-		.plugin(tauri_plugin_dialog::init());
+		.plugin(tauri_plugin_dialog::init())
+		.plugin(tauri_plugin_opener::init())
+		.plugin(tauri_plugin_updater::Builder::new().build())
+		.plugin(tauri_plugin_process::init());
 
 	#[cfg(debug_assertions)]
 	{

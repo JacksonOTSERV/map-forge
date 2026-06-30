@@ -1,6 +1,6 @@
 [package]
 name = "map-forge"
-version = "0.1.0"
+version = "0.0.0"
 description = "A Tibia OTBM map editor"
 edition = "2021"
 
@@ -19,6 +19,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 tauri-plugin-mcp-bridge = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

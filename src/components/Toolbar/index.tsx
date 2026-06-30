@@ -3,6 +3,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import AppMenu from '~/components/Toolbar/AppMenu';
 import { PaletteCategoryId } from '~/domain/palette';
+import { useUpdater } from '~/usecase/hooks/useUpdater';
+import { UpdateIndicator } from '~/components/UpdateIndicator';
 
 interface ToolbarProps {
   loading: boolean;
@@ -54,6 +56,7 @@ const Toolbar = ({
   onAbout
 }: ToolbarProps) => {
   const win = getCurrentWindow();
+  const updater = useUpdater();
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   const onDragStart = (e: React.MouseEvent) => {
@@ -108,7 +111,11 @@ const Toolbar = ({
         onSelectPaletteCategory={onSelectPaletteCategory}
       />
 
-      <div className="-mr-3 ml-auto flex items-center">
+      <div onMouseDown={stop} className="ml-auto flex items-center pr-2">
+        <UpdateIndicator updater={updater} />
+      </div>
+
+      <div className="-mr-3 flex items-center">
         <button
           onMouseDown={stop}
           onClick={() => win.minimize()}
