@@ -1018,7 +1018,7 @@ mod tests {
 		let src = std::fs::read("../data/860/forgotten.otbm").unwrap();
 		let (out, idx) = build_faithful(&empty_model(0, 0), &src, &HashSet::new(), &mut |_, _| {}).unwrap();
 
-		let tmp = std::env::temp_dir().join("nosbor_lazy_ensure_test.otbm");
+		let tmp = std::env::temp_dir().join("mapforge_lazy_ensure_test.otbm");
 		std::fs::write(&tmp, &out).unwrap();
 
 		let (w, h) = crate::formats::tibia::otbm::read_otbm_header(&out).unwrap();

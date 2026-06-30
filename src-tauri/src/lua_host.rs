@@ -25,7 +25,7 @@ impl LuaHost {
 			.collect();
 		files.sort();
 		lua.globals()
-			.set("nosbor", lua.create_table().map_err(|e| e.to_string())?)
+			.set("forge", lua.create_table().map_err(|e| e.to_string())?)
 			.map_err(|e| e.to_string())?;
 		crate::lua_format::register(&lua).map_err(|e| e.to_string())?;
 		let mut count = 0usize;

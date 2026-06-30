@@ -61,8 +61,8 @@ fn native_stack_class(is_ground: bool, is_border: bool, top_order: u8) -> i32 {
 }
 
 fn lua_stack_class(h: &LuaHost, is_ground: bool, is_border: bool, top_order: u8) -> Option<i32> {
-	let nosbor: mlua::Table = h.lua.globals().get("nosbor").ok()?;
-	let f: mlua::Function = nosbor.get("stack_class").ok()?;
+	let forge: mlua::Table = h.lua.globals().get("forge").ok()?;
+	let f: mlua::Function = forge.get("stack_class").ok()?;
 	f.call::<i32>((is_ground, is_border, top_order)).ok()
 }
 
@@ -87,8 +87,8 @@ pub fn border_class() -> i32 {
 }
 
 fn lua_wall_segment(h: &LuaHost, mask: u8, half: bool) -> Option<u8> {
-	let nosbor: mlua::Table = h.lua.globals().get("nosbor").ok()?;
-	let f: mlua::Function = nosbor.get("wall_segment").ok()?;
+	let forge: mlua::Table = h.lua.globals().get("forge").ok()?;
+	let f: mlua::Function = forge.get("wall_segment").ok()?;
 	f.call::<Option<u8>>((mask, half)).ok().flatten()
 }
 
@@ -103,8 +103,8 @@ pub fn wall_segment(mask: u8, half: bool) -> Option<u8> {
 }
 
 fn lua_border_type(h: &LuaHost, mask: u8) -> Option<u32> {
-	let nosbor: mlua::Table = h.lua.globals().get("nosbor").ok()?;
-	let f: mlua::Function = nosbor.get("border_type").ok()?;
+	let forge: mlua::Table = h.lua.globals().get("forge").ok()?;
+	let f: mlua::Function = forge.get("border_type").ok()?;
 	f.call::<Option<u32>>(mask).ok().flatten()
 }
 
@@ -118,8 +118,8 @@ pub fn border_type(mask: u8) -> Option<u32> {
 }
 
 fn lua_allow_place(h: &LuaHost, server: u16, has_ground: bool) -> Option<bool> {
-	let nosbor: mlua::Table = h.lua.globals().get("nosbor").ok()?;
-	let f: mlua::Function = nosbor.get("allow_place").ok()?;
+	let forge: mlua::Table = h.lua.globals().get("forge").ok()?;
+	let f: mlua::Function = forge.get("allow_place").ok()?;
 	f.call::<bool>((server, has_ground)).ok()
 }
 
@@ -151,7 +151,7 @@ mod tests {
 	fn lua_override_is_consulted() {
 		let host = LuaHost::new(PathBuf::from("."));
 		host.lua
-			.load("nosbor = {}\nfunction nosbor.stack_class(g, b, t) return 777 end")
+			.load("forge = {}\nfunction forge.stack_class(g, b, t) return 777 end")
 			.exec()
 			.unwrap();
 		let _s = ScopedLua::enter(&host);
@@ -164,10 +164,10 @@ mod tests {
 		use std::ffi::c_void;
 		let mut host = LuaHost::new(PathBuf::from("../data/scripts"));
 		host.load_all().unwrap();
-		let nosbor: Table = host.lua.globals().get("nosbor").unwrap();
+		let forge: Table = host.lua.globals().get("forge").unwrap();
 
 		let src: Vec<u16> = vec![0, 1, 2, 0, 7];
-		let count: u32 = nosbor
+		let count: u32 = forge
 			.get::<Function>("count_nonzero")
 			.unwrap()
 			.call((LightUserData(src.as_ptr() as *mut c_void), src.len()))
@@ -175,7 +175,7 @@ mod tests {
 		assert_eq!(count, 3, "ffi read loop counts nonzero u16 over a rust-owned array");
 
 		let mut dst: Vec<u16> = vec![0; src.len()];
-		nosbor
+		forge
 			.get::<Function>("scale_u16")
 			.unwrap()
 			.call::<()>((

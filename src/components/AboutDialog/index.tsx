@@ -12,7 +12,7 @@ interface AboutDialogProps {
 }
 
 const AUTHOR_URL = 'https://github.com/Frenvius';
-const REPO_URL = `${AUTHOR_URL}/nosbor-map-editor`;
+const REPO_URL = `${AUTHOR_URL}/map-forge`;
 const ISSUES_URL = `${REPO_URL}/issues`;
 
 const AboutDialog = ({ open, onOpenChange }: AboutDialogProps) => {
@@ -28,13 +28,13 @@ const AboutDialog = ({ open, onOpenChange }: AboutDialogProps) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[440px] gap-0 overflow-hidden p-0">
         <DialogHeader className="sr-only">
-          <DialogTitle>About Nosbor Map Editor</DialogTitle>
+          <DialogTitle>About Map Forge</DialogTitle>
           <DialogDescription>Application information and resources</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col items-center border-b border-border/50 px-6 pb-5 pt-8">
-          <img src="/logo.png" draggable={false} alt="Nosbor Map Editor" className="mb-3 h-20 w-20 select-none" />
-          <h2 className="text-2xl font-semibold tracking-tight">Nosbor Map Editor</h2>
+          <img src="/logo.png" draggable={false} alt="Map Forge" className="mb-3 h-20 w-20 select-none" />
+          <h2 className="text-2xl font-semibold tracking-tight">Map Forge</h2>
           {version && <span className="mt-1 font-mono text-sm text-primary">{version}</span>}
         </div>
 

@@ -1542,7 +1542,7 @@ mod tests {
 
 		let host = LuaHost::new(PathBuf::from("."));
 		host.lua
-			.load("nosbor = {}\nfunction nosbor.allow_place(s, hg) return s ~= 4526 end")
+			.load("forge = {}\nfunction forge.allow_place(s, hg) return s ~= 4526 end")
 			.exec()
 			.unwrap();
 		let _s = ScopedLua::enter(&host);

@@ -15,7 +15,7 @@ import { Select, SelectItem, SelectValue, SelectContent, SelectTrigger } from '~
 
 import { useItemSprites, ITEM_SPRITE_CACHE } from './sprites';
 
-export const ITEM_DRAG_TYPE = 'application/x-nosbor-item';
+export const ITEM_DRAG_TYPE = 'application/x-mapforge-item';
 const ROW_H = 48;
 const OVERSCAN = 6;
 

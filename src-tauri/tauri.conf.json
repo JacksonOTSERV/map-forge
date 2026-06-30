@@ -1,8 +1,8 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Nosbor Map Editor",
+	"productName": "Map Forge",
 	"version": "0.1.0",
-	"identifier": "com.nosbor.map-editor",
+	"identifier": "com.frenvius.mapforge",
 	"build": {
 		"beforeDevCommand": "bun run dev",
 		"beforeBuildCommand": "bun run build",
@@ -14,7 +14,7 @@
 		"windows": [
 			{
 				"label": "main",
-				"title": "Nosbor Map Editor",
+				"title": "Map Forge",
 				"width": 1300,
 				"height": 800,
 				"minWidth": 900,

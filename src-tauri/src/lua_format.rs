@@ -309,9 +309,8 @@ fn with_tile<R>(x: u16, y: u16, z: u8, f: impl FnOnce(&mut TileAcc) -> R) -> Opt
 }
 
 pub fn register(lua: &Lua) -> mlua::Result<()> {
-	let nosbor: Table = lua.globals().get("nosbor")?;
-	nosbor.set("_formats", lua.create_table()?)?;
-	lua.globals().set("forge", nosbor.clone())?;
+	let forge: Table = lua.globals().get("forge")?;
+	forge.set("_formats", lua.create_table()?)?;
 
 	let map = lua.create_table()?;
 	map.set(
@@ -352,7 +351,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
 		})?,
 	)?;
 	map.set("finish", lua.create_function(|_, ()| Ok(()))?)?;
-	nosbor.set("map", map)?;
+	forge.set("map", map)?;
 
 	let items = lua.create_table()?;
 	items.set(
@@ -385,7 +384,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
 		})?,
 	)?;
 	items.set("finish", lua.create_function(|_, ()| Ok(()))?)?;
-	nosbor.set("items", items)?;
+	forge.set("items", items)?;
 
 	let sprites = lua.create_table()?;
 	sprites.set(
@@ -464,7 +463,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
 		})?,
 	)?;
 	sprites.set("finish", lua.create_function(|_, ()| Ok(()))?)?;
-	nosbor.set("sprites", sprites)?;
+	forge.set("sprites", sprites)?;
 
 	let things = lua.create_table()?;
 	things.set(
@@ -514,9 +513,9 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
 		})?,
 	)?;
 	things.set("finish", lua.create_function(|_, ()| Ok(()))?)?;
-	nosbor.set("things", things)?;
+	forge.set("things", things)?;
 
-	nosbor.set(
+	forge.set(
 		"inflate",
 		lua.create_function(|lua, (data, orig_len): (mlua::String, usize)| {
 			let comp = data.as_bytes();
@@ -526,7 +525,7 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
 		})?,
 	)?;
 
-	nosbor.set(
+	forge.set(
 		"deflate",
 		lua.create_function(|lua, data: mlua::String| {
 			use flate2::write::ZlibEncoder;
@@ -538,12 +537,12 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
 		})?,
 	)?;
 
-	nosbor.set(
+	forge.set(
 		"register_format",
 		lua.create_function(|lua, t: Table| {
 			let ext: String = t.get("ext")?;
-			let nosbor: Table = lua.globals().get("nosbor")?;
-			let formats: Table = nosbor.get("_formats")?;
+			let forge: Table = lua.globals().get("forge")?;
+			let formats: Table = forge.get("_formats")?;
 			formats.set(ext.to_lowercase(), t)?;
 			Ok(())
 		})?,
@@ -612,8 +611,8 @@ fn ext_of(path: &str) -> String {
 }
 
 fn format_read(lua: &Lua, ext: &str) -> Result<Function, String> {
-	let nosbor: Table = lua.globals().get("nosbor").map_err(|e| e.to_string())?;
-	let formats: Table = nosbor.get("_formats").map_err(|e| e.to_string())?;
+	let forge: Table = lua.globals().get("forge").map_err(|e| e.to_string())?;
+	let formats: Table = forge.get("_formats").map_err(|e| e.to_string())?;
 	let fmt: Table = formats.get(ext.to_string()).map_err(|_| format!("no registered format for .{}", ext))?;
 	fmt.get("read").map_err(|_| format!("format .{} has no read function", ext))
 }
@@ -624,8 +623,8 @@ fn call_read(read: &Function, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn format_write(lua: &Lua, ext: &str) -> Result<Function, String> {
-	let nosbor: Table = lua.globals().get("nosbor").map_err(|e| e.to_string())?;
-	let formats: Table = nosbor.get("_formats").map_err(|e| e.to_string())?;
+	let forge: Table = lua.globals().get("forge").map_err(|e| e.to_string())?;
+	let formats: Table = forge.get("_formats").map_err(|e| e.to_string())?;
 	let fmt: Table = formats.get(ext.to_string()).map_err(|_| format!("no registered format for .{}", ext))?;
 	fmt.get("write").map_err(|_| format!("format .{} has no write function", ext))
 }
@@ -673,8 +672,8 @@ pub fn save_scripted_map(map_id: u32, path: String, map_state: State<MapState>, 
 #[tauri::command]
 pub fn registered_formats(lua_state: State<LuaState>) -> Result<Vec<(String, String, String)>, String> {
 	let guard = lua_state.lock().map_err(|e| e.to_string())?;
-	let nosbor: Table = guard.lua.globals().get("nosbor").map_err(|e| e.to_string())?;
-	let formats: Table = nosbor.get("_formats").map_err(|e| e.to_string())?;
+	let forge: Table = guard.lua.globals().get("forge").map_err(|e| e.to_string())?;
+	let formats: Table = forge.get("_formats").map_err(|e| e.to_string())?;
 	let mut out = Vec::new();
 	for pair in formats.pairs::<String, Table>() {
 		let (ext, t) = pair.map_err(|e| e.to_string())?;
@@ -794,10 +793,10 @@ pub struct UiConfig {
 
 fn read_ui_config(lua: &Lua) -> UiConfig {
 	let mut cfg = UiConfig { client_versions: true, assets: None };
-	let Ok(nosbor) = lua.globals().get::<Table>("nosbor") else {
+	let Ok(forge) = lua.globals().get::<Table>("forge") else {
 		return cfg;
 	};
-	let Ok(ui) = nosbor.get::<Table>("ui") else {
+	let Ok(ui) = forge.get::<Table>("ui") else {
 		return cfg;
 	};
 	if let Ok(cv) = ui.get::<bool>("client_versions") {
@@ -831,10 +830,10 @@ pub struct AppConfig {
 
 fn read_app_config(lua: &Lua) -> AppConfig {
 	let mut cfg = AppConfig::default();
-	let Ok(nosbor) = lua.globals().get::<Table>("nosbor") else {
+	let Ok(forge) = lua.globals().get::<Table>("forge") else {
 		return cfg;
 	};
-	let Ok(app) = nosbor.get::<Table>("app") else {
+	let Ok(app) = forge.get::<Table>("app") else {
 		return cfg;
 	};
 	if let Ok(name) = app.get::<String>("name") {
@@ -894,7 +893,7 @@ mod tests {
 
 	fn host_with(src: &str) -> LuaHost {
 		let host = LuaHost::new(PathBuf::from("."));
-		host.lua.load("nosbor = {}").exec().unwrap();
+		host.lua.load("forge = {}").exec().unwrap();
 		register(&host.lua).unwrap();
 		host.lua.load(src).exec().unwrap();
 		host
@@ -903,11 +902,11 @@ mod tests {
 	#[test]
 	fn map_builder_single_id_straight_through() {
 		let host = host_with(
-			"nosbor.register_format{ ext='t', name='T', read=function(buf, len)\n\
-			   nosbor.map.begin(256, 256, 16)\n\
-			   nosbor.map.set_ground(100, 100, 7, 4526)\n\
-			   nosbor.map.add_item(100, 100, 7, 1234)\n\
-			   nosbor.map.finish()\n\
+			"forge.register_format{ ext='t', name='T', read=function(buf, len)\n\
+			   forge.map.begin(256, 256, 16)\n\
+			   forge.map.set_ground(100, 100, 7, 4526)\n\
+			   forge.map.add_item(100, 100, 7, 1234)\n\
+			   forge.map.finish()\n\
 			 end }",
 		);
 		let read = format_read(&host.lua, "t").unwrap();
@@ -925,11 +924,11 @@ mod tests {
 	#[test]
 	fn itemdb_builder_collects_names() {
 		let host = host_with(
-			"nosbor.register_format{ ext='d', name='D', read=function(buf, len)\n\
-			   nosbor.items.begin()\n\
-			   nosbor.items.add(4526, { name='grass', ground=true, group=2 })\n\
-			   nosbor.items.add(1234, { name='torch' })\n\
-			   nosbor.items.finish()\n\
+			"forge.register_format{ ext='d', name='D', read=function(buf, len)\n\
+			   forge.items.begin()\n\
+			   forge.items.add(4526, { name='grass', ground=true, group=2 })\n\
+			   forge.items.add(1234, { name='torch' })\n\
+			   forge.items.finish()\n\
 			 end }",
 		);
 		let read = format_read(&host.lua, "d").unwrap();
@@ -964,19 +963,19 @@ mod tests {
 		buf.extend_from_slice(&c1);
 
 		let host = host_with(
-			"nosbor.register_format{ ext='tpak', name='T', kind='assets', read=function(buf, len)\n\
+			"forge.register_format{ ext='tpak', name='T', kind='assets', read=function(buf, len)\n\
 			   local ffi = require('ffi'); local p = ffi.cast('const uint8_t*', buf); local pos = 0\n\
 			   local function u32() local v=p[pos]+p[pos+1]*256+p[pos+2]*65536+p[pos+3]*16777216; pos=pos+4; return v end\n\
-			   nosbor.sprites.begin()\n\
+			   forge.sprites.begin()\n\
 			   local l0 = u32(); local a0 = ffi.string(p+pos, l0); pos = pos + l0\n\
-			   nosbor.sprites.set_atlas(0, 2, 1, 0, a0)\n\
+			   forge.sprites.set_atlas(0, 2, 1, 0, a0)\n\
 			   local l1 = u32(); local a1 = ffi.string(p+pos, l1); pos = pos + l1\n\
-			   nosbor.sprites.set_atlas(1, 1, 1, 0, a1)\n\
-			   nosbor.sprites.set_sprite(100, 0, 0, 0, 1, 1)\n\
-			   nosbor.sprites.set_sprite(101, 0, 1, 0, 1, 1)\n\
-			   nosbor.sprites.set_sprite(200, 1, 0, 0, 1, 1)\n\
-			   nosbor.sprites.map_item(5, 100)\n\
-			   nosbor.sprites.finish()\n\
+			   forge.sprites.set_atlas(1, 1, 1, 0, a1)\n\
+			   forge.sprites.set_sprite(100, 0, 0, 0, 1, 1)\n\
+			   forge.sprites.set_sprite(101, 0, 1, 0, 1, 1)\n\
+			   forge.sprites.set_sprite(200, 1, 0, 0, 1, 1)\n\
+			   forge.sprites.map_item(5, 100)\n\
+			   forge.sprites.finish()\n\
 			 end }",
 		);
 		let read = format_read(&host.lua, "tpak").unwrap();
@@ -1006,10 +1005,10 @@ mod tests {
 	#[test]
 	fn things_add_collects_attrs_bag() {
 		let host = host_with(
-			"nosbor.register_format{ ext='th', name='TH', read=function(buf, len)\n\
-			   nosbor.things.begin()\n\
-			   nosbor.things.add({ id=7, width=1, attrs={ swimmable=true, depth=3, label='deep' } })\n\
-			   nosbor.things.finish()\n\
+			"forge.register_format{ ext='th', name='TH', read=function(buf, len)\n\
+			   forge.things.begin()\n\
+			   forge.things.add({ id=7, width=1, attrs={ swimmable=true, depth=3, label='deep' } })\n\
+			   forge.things.finish()\n\
 			 end }",
 		);
 		let read = format_read(&host.lua, "th").unwrap();
@@ -1033,7 +1032,7 @@ mod tests {
 		assert!(d.assets.is_none());
 
 		let host2 = host_with(
-			"nosbor.ui = { client_versions = false, assets = { ext = 'pak', label = 'Assets', itemdb = 'items.db' } }",
+			"forge.ui = { client_versions = false, assets = { ext = 'pak', label = 'Assets', itemdb = 'items.db' } }",
 		);
 		let c = read_ui_config(&host2.lua);
 		assert!(!c.client_versions, "lua hides client version tab");
@@ -1069,8 +1068,8 @@ mod tests {
 		enc.write_all(original).unwrap();
 		let comp = enc.finish().unwrap();
 
-		let nosbor: Table = host.lua.globals().get("nosbor").unwrap();
-		let inflate: Function = nosbor.get("inflate").unwrap();
+		let forge: Table = host.lua.globals().get("forge").unwrap();
+		let inflate: Function = forge.get("inflate").unwrap();
 		let input = host.lua.create_string(&comp).unwrap();
 		let out: mlua::String = inflate.call((input, original.len())).unwrap();
 		assert_eq!(&out.as_bytes()[..], &original[..]);

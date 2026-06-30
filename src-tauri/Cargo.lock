@@ -1967,6 +1967,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "map-forge"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "image 0.24.9",
+ "lz4_flex",
+ "mlua",
+ "notify",
+ "rayon",
+ "roxmltree",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-mcp-bridge",
+ "window-vibrancy 0.7.1",
+]
+
+[[package]]
 name = "markup5ever"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2119,27 +2140,6 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
-
-[[package]]
-name = "nosbor-map-editor"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "image 0.24.9",
- "lz4_flex",
- "mlua",
- "notify",
- "rayon",
- "roxmltree",
- "serde",
- "serde_bytes",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-mcp-bridge",
- "window-vibrancy 0.7.1",
-]
 
 [[package]]
 name = "notify"

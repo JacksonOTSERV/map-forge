@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-	nosbor_map_editor_lib::run()
+	map_forge_lib::run()
 }
