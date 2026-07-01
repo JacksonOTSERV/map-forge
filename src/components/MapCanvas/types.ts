@@ -11,6 +11,7 @@ import { MapWaypoints } from '~/domain/waypoint';
 import { ToolId, EraserMode } from '~/domain/tools';
 import { MapView, MapMeta, Position } from '~/domain/map';
 import { ActiveBrush, PaletteCategoryId } from '~/domain/palette';
+import { HuntArea, HuntMeta, HuntMonster, HuntViewPreview } from '~/usecase/context/ToolContext/types';
 
 export interface Camera {
   x: number;
@@ -161,6 +162,13 @@ export interface MapCanvasContextInputs {
   onSelectBrush: (brush: ActiveBrush | null) => void;
   onRevealBrush?: (category: PaletteCategoryId, serverId: number, name?: string) => void;
   onSelectHouse: (houseId: number) => void;
+  huntAreaSelecting: boolean;
+  huntEditing: boolean;
+  huntView: HuntViewPreview;
+  huntMonsters: HuntMonster[];
+  onHuntArea: (area: HuntArea | null) => void;
+  onHuntAreaSelecting: (active: boolean) => void;
+  onHuntMeta: (meta: HuntMeta | null) => void;
 }
 
 export type MapCanvasInputs = MapCanvasProps & MapCanvasContextInputs;

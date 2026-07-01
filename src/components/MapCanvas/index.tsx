@@ -92,6 +92,13 @@ const MapCanvas = (props: MapCanvasProps) => {
     activeTile: tool.activeTile,
     penWidth: tool.penWidth,
     activeHouseId: tool.activeHouseId,
+    huntAreaSelecting: tool.huntAreaSelecting,
+    huntEditing: tool.huntEditing,
+    huntView: tool.huntView,
+    huntMonsters: tool.huntMonsters,
+    onHuntArea: tool.setHuntArea,
+    onHuntAreaSelecting: tool.setHuntAreaSelecting,
+    onHuntMeta: tool.setHuntMeta,
     onToolChange: tool.setActiveTool,
     onSelectBrush: tool.selectBrush,
     onRevealBrush: tool.revealInPalette,
@@ -145,6 +152,28 @@ const MapCanvas = (props: MapCanvasProps) => {
     const run = interaction.generate(signal.biomes, signal.opts, signal.mountain, signal.mountainOpts, report);
     void run.finally(() => tool.setGenerationProgress(null));
   }, [tool.generateSignal?.nonce]);
+
+  React.useEffect(() => {
+    const signal = tool.huntSignal;
+    if (!signal) return;
+    void interaction.huntPreview(signal).then((meta) => tool.setHuntMeta(meta));
+  }, [tool.huntSignal?.nonce]);
+
+  React.useEffect(() => {
+    const signal = tool.huntRescatterSignal;
+    if (!signal) return;
+    interaction.rescatterHunt(signal.boxSize, signal.viewW, signal.viewH);
+  }, [tool.huntRescatterSignal?.nonce]);
+
+  React.useEffect(() => {
+    if (tool.huntGenerateNonce === 0) return;
+    interaction.generateHunt();
+  }, [tool.huntGenerateNonce]);
+
+  React.useEffect(() => {
+    if (tool.huntClearNonce === 0) return;
+    interaction.clearHunt();
+  }, [tool.huntClearNonce]);
 
   React.useEffect(() => {
     const ref = props.centerRef;
@@ -306,6 +335,7 @@ const MapCanvas = (props: MapCanvasProps) => {
         onContextMenu={interaction.handlers.onContextMenu}
       />
       <canvas aria-hidden ref={overlayRef} className="pointer-events-none absolute left-0 top-0 h-full w-full" />
+      <canvas aria-hidden ref={scene.huntCanvasRef} className="pointer-events-none absolute left-0 top-0 h-full w-full" />
       {activeTool === 'pen' && <PenOverlay camera={camera} pen={interaction.pen} />}
       <img
         alt=""
@@ -341,6 +371,20 @@ const MapCanvas = (props: MapCanvasProps) => {
             onMouseDown={(e) => interaction.beginSpawnResize(e, h.key)}
             style={{ left: h.left, top: h.top, cursor: h.cursor, transform: 'translate(-50%, -50%)' }}
             className="pointer-events-auto absolute h-3 w-3 rounded-sm border border-amber-200 bg-amber-400 shadow"
+          />
+        ))}
+      </div>
+      <div
+        ref={scene.huntAreaBoxRef}
+        style={{ transformOrigin: 'top left' }}
+        className="pointer-events-none absolute left-0 top-0 hidden"
+      >
+        {SPAWN_HANDLES.map((h) => (
+          <div
+            key={h.key}
+            onMouseDown={(e) => interaction.beginHuntAreaResize(e, h.key)}
+            style={{ left: h.left, top: h.top, cursor: h.cursor, transform: 'translate(-50%, -50%)' }}
+            className="pointer-events-auto absolute h-3 w-3 rounded-sm border border-sky-200 bg-sky-400 shadow"
           />
         ))}
       </div>

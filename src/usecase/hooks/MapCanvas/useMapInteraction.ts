@@ -8,6 +8,7 @@ import { mapClientIds } from '~/adapter/assets';
 import { generateApply } from '~/adapter/biomes';
 import { brushForItem } from '~/adapter/palette';
 import { selectionFloorBoxes } from '~/usecase/floors';
+import { readWalkableMask } from '~/usecase/hunt/mask';
 import { buildItemPreview } from '~/usecase/itemPreview';
 import { planGeneration } from '~/lib/generator/generate';
 import { formatPosition } from '~/usecase/positionFormat';
@@ -15,10 +16,13 @@ import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
 import { GenPlan, ResolvedBiome, GenerateOptions } from '~/domain/biome';
 import { MapSpawns, emptyMapSpawns, buildMapSpawns } from '~/domain/creature';
 import { waypointAt, MapWaypoints, emptyMapWaypoints } from '~/domain/waypoint';
+import { HuntMeta, HuntPreviewParams } from '~/usecase/context/ToolContext/types';
 import { TILE, CHUNK, MOVE_THRESHOLD_SQ } from '~/components/MapCanvas/constants';
+import { buildRoute, connectRoute, reachableFrom } from '~/lib/generator/huntRoute';
 import { PEN_CURSOR, PEN_MOVE_CURSOR, PEN_CONVERT_CURSOR } from '~/usecase/penCursors';
 import { PenHot, PenPoint, PenAnchor, pathTiles, sampleBezierPath } from '~/lib/pen/path';
 import { planMountain, mountainMargin, mountainHeights } from '~/lib/generator/generateMountain';
+import { coverageMask, spreadPoints, scatterPoints, nearestWalkable } from '~/lib/generator/hunt';
 import { addWaypoint, moveWaypoint, removeWaypoint, renameWaypoint, nextWaypointName } from '~/usecase/waypointEdits';
 import {
   HoverInfo,
@@ -382,6 +386,45 @@ export function useMapInteraction(deps: InteractionDeps) {
       base = setSpawnSize(base, final.center, final.radius);
       editSpawns(base);
       selection.selectSpawn(final.center);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
+  function beginHuntAreaResize(e: React.MouseEvent, handle: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (modalOpen.current) return;
+    const area0 = scene.huntArea.current;
+    if (!area0) return;
+    const hasW = handle.includes('w');
+    const hasE = handle.includes('e');
+    const hasN = handle.includes('n');
+    const hasS = handle.includes('s');
+    const move = (ev: MouseEvent) => {
+      const t = tileFromClient(ev.clientX, ev.clientY);
+      scene.huntArea.current = {
+        minX: hasW ? Math.min(t.x, area0.maxX) : area0.minX,
+        maxX: hasE ? Math.max(t.x, area0.minX) : area0.maxX,
+        minY: hasN ? Math.min(t.y, area0.maxY) : area0.minY,
+        maxY: hasS ? Math.max(t.y, area0.minY) : area0.maxY,
+        z: area0.z
+      };
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      const final = scene.huntArea.current;
+      if (!final) return;
+      inputs.current.onHuntArea(final);
+      const changed =
+        final.minX !== area0.minX || final.minY !== area0.minY || final.maxX !== area0.maxX || final.maxY !== area0.maxY;
+      if (changed) {
+        scene.huntRoute.current = null;
+        scene.huntSession.current = null;
+        inputs.current.onHuntMeta(null);
+        emit(`Hunt area: ${final.maxX - final.minX + 1} x ${final.maxY - final.minY + 1}`);
+      }
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -1182,6 +1225,163 @@ export function useMapInteraction(deps: InteractionDeps) {
     }
   }
 
+  function rebuildHuntRoute(): HuntMeta | null {
+    const s = scene.huntSession.current;
+    if (!s) return null;
+    const route = connectRoute(s.mask, s.nodes);
+    const toWorld = (p: { x: number; y: number }) => ({ x: p.x + s.minX, y: p.y + s.minY });
+    scene.huntRoute.current = { nodes: route.nodes.map(toWorld), paths: route.edges.map((e) => e.path.map(toWorld)) };
+    const meta: HuntMeta = { points: route.nodes.length, steps: route.totalSteps };
+    inputs.current.onHuntMeta(meta);
+    return meta;
+  }
+
+  async function huntPreview(params: HuntPreviewParams): Promise<HuntMeta | null> {
+    const { minX, minY, maxX, maxY, z } = params.area;
+    if (maxX < minX || maxY < minY) {
+      emit('Select a hunt area first');
+      return null;
+    }
+    const grid = await readWalkableMask(inputs.current.map.id, z, minX, minY, maxX, maxY, inputs.current.items);
+    const seeded = buildRoute(grid.mask, spreadPoints(grid.mask, params.viewW, params.viewH));
+    const mask = seeded.nodes.length > 0 ? reachableFrom(grid.mask, seeded.nodes[0]) : grid.mask;
+    scene.huntSession.current = {
+      mask,
+      minX: grid.minX,
+      minY: grid.minY,
+      spawntime: params.spawntime,
+      boxSize: params.boxSize,
+      viewW: params.viewW,
+      viewH: params.viewH,
+      nodes: seeded.nodes,
+      monsterTiles: []
+    };
+    scene.huntRouteZ.current = z;
+    const meta = rebuildHuntRoute();
+    rescatterHunt();
+    if (!meta || meta.points === 0) emit('No walkable tiles in the selected area');
+    else emit(`Hunt route: ${meta.points} box${meta.points === 1 ? '' : 'es'}`);
+    return meta;
+  }
+
+  function rescatterHunt(boxSize?: number, viewW?: number, viewH?: number) {
+    const s = scene.huntSession.current;
+    const route = scene.huntRoute.current;
+    if (!s || !route) return;
+    s.boxSize = boxSize ?? s.boxSize;
+    s.viewW = viewW ?? s.viewW;
+    s.viewH = viewH ?? s.viewH;
+    const cover: { x: number; y: number }[] = [];
+    for (const n of route.nodes) cover.push({ x: n.x - s.minX, y: n.y - s.minY });
+    for (const path of route.paths) for (const p of path) cover.push({ x: p.x - s.minX, y: p.y - s.minY });
+    const eligible = coverageMask(s.mask, cover, Math.floor(s.viewW / 2), Math.floor(s.viewH / 2));
+    let walkableCount = 0;
+    for (const row of eligible) for (const cell of row) if (cell) walkableCount++;
+    const monsterCount = Math.round((walkableCount * s.boxSize) / (s.viewW * s.viewH));
+    s.monsterTiles = scatterPoints(eligible, monsterCount, Math.random);
+  }
+
+  function generateHunt() {
+    const s = scene.huntSession.current;
+    const monsters = inputs.current.huntMonsters;
+    if (!s) {
+      emit('Preview a hunt first');
+      return;
+    }
+    if (monsters.length === 0) {
+      emit('Select at least one monster');
+      return;
+    }
+    if (s.monsterTiles.length === 0) {
+      emit('Nothing to generate');
+      return;
+    }
+    const z = scene.huntRouteZ.current;
+    const base = inputs.current.spawns ?? emptyMapSpawns();
+    const areas = [...base.areas];
+    const placements = [...base.placements];
+    const occupied = new Set(base.placements.map((p) => `${p.x},${p.y},${p.z}`));
+    let added = 0;
+    s.monsterTiles.forEach((t, i) => {
+      const x = t.x + s.minX;
+      const y = t.y + s.minY;
+      if (occupied.has(`${x},${y},${z}`)) return;
+      occupied.add(`${x},${y},${z}`);
+      const m = monsters[i % monsters.length];
+      areas.push({ x, y, z, radius: 1 });
+      placements.push({
+        x,
+        y,
+        z,
+        name: m.name,
+        isNpc: false,
+        lookType: m.lookType,
+        head: m.head,
+        body: m.body,
+        legs: m.legs,
+        feet: m.feet,
+        spawntime: m.spawntime,
+        direction: 2
+      });
+      added++;
+    });
+    editSpawns(buildMapSpawns(areas, placements));
+    clearHuntPreview();
+    scene.huntArea.current = null;
+    inputs.current.onHuntArea(null);
+    inputs.current.onHuntMeta(null);
+    emit(`Generated ${added} spawn${added === 1 ? '' : 's'}`);
+  }
+
+  function clearHuntPreview() {
+    scene.huntRoute.current = null;
+    scene.huntSession.current = null;
+    scene.huntSelected.current = null;
+  }
+
+  function clearHunt() {
+    clearHuntPreview();
+    scene.huntArea.current = null;
+    scene.huntAreaDrag.current = null;
+    inputs.current.onHuntArea(null);
+    inputs.current.onHuntMeta(null);
+  }
+
+  function huntNodeAt(pos: Position): number {
+    const nodes = scene.huntRoute.current?.nodes;
+    if (!nodes) return -1;
+    let bi = -1;
+    let bd = Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+      const d = Math.max(Math.abs(nodes[i].x - pos.x), Math.abs(nodes[i].y - pos.y));
+      if (d < bd) {
+        bd = d;
+        bi = i;
+      }
+    }
+    return bi >= 0 && bd <= 1 ? bi : -1;
+  }
+
+  function huntEdgeAt(pos: Position): boolean {
+    const paths = scene.huntRoute.current?.paths;
+    if (!paths) return false;
+    for (const path of paths) {
+      for (const p of path) {
+        if (Math.abs(p.x - pos.x) <= 1 && Math.abs(p.y - pos.y) <= 1) return true;
+      }
+    }
+    return false;
+  }
+
+  function huntEditingActive(): boolean {
+    return (
+      inputs.current.huntEditing &&
+      scene.huntSession.current != null &&
+      scene.huntRoute.current != null &&
+      scene.huntRouteZ.current === inputs.current.floorZ
+    );
+  }
+
   function selectionArrays() {
     const sel = [...selection.entries.current.values()];
     if (sel.length === 0) return null;
@@ -1556,6 +1756,35 @@ export function useMapInteraction(deps: InteractionDeps) {
       return;
     }
 
+    if (inputs.current.huntAreaSelecting) {
+      const pos = tileAt(e);
+      scene.huntAreaDrag.current = { start: pos, cur: pos };
+      return;
+    }
+
+    if (huntEditingActive()) {
+      const pos = tileAt(e);
+      const ni = huntNodeAt(pos);
+      if (ni >= 0) {
+        scene.huntDrag.current = { index: ni, moved: false };
+        scene.huntSelected.current = ni;
+        return;
+      }
+      const s = scene.huntSession.current!;
+      if (huntEdgeAt(pos)) {
+        const snap = nearestWalkable(s.mask, pos.x - s.minX, pos.y - s.minY, 3);
+        if (snap) {
+          s.nodes.push(snap);
+          const idx = s.nodes.length - 1;
+          scene.huntSelected.current = idx;
+          scene.huntDrag.current = { index: idx, moved: false };
+          rebuildHuntRoute();
+          rescatterHunt();
+        }
+        return;
+      }
+    }
+
     if (scene.pasteGhost.current) {
       const pos = tileAt(e);
       scene.pasteGhost.current = null;
@@ -1581,7 +1810,10 @@ export function useMapInteraction(deps: InteractionDeps) {
     const brush = inputs.current.activeBrush;
     const canBrush = tool === 'brush' && brush != null && brush.serverId != null;
     const zoneTool = isZoneTool(tool);
-    if (e.shiftKey && (tool === 'select' || tool === 'eraser' || tool === 'borderize' || zoneTool || canBrush || tool === 'house')) {
+    if (
+      e.shiftKey &&
+      (tool === 'select' || tool === 'eraser' || tool === 'borderize' || zoneTool || canBrush || tool === 'house')
+    ) {
       const pos = tileAt(e);
       selection.box.current = { startTile: pos, curTile: pos, additive: e.ctrlKey };
       setBoxing(true);
@@ -1689,6 +1921,25 @@ export function useMapInteraction(deps: InteractionDeps) {
       const r = canvasEl.getBoundingClientRect();
       scene.mouseScreen.current = { x: e.clientX - r.left, y: e.clientY - r.top };
     }
+    if (scene.huntAreaDrag.current) {
+      scene.huntAreaDrag.current.cur = tileAt(e);
+      return;
+    }
+    if (scene.huntDrag.current && scene.huntSession.current) {
+      const s = scene.huntSession.current;
+      const idx = scene.huntDrag.current.index;
+      const pos = tileAt(e);
+      const snap = nearestWalkable(s.mask, pos.x - s.minX, pos.y - s.minY, 3);
+      if (snap) {
+        const cur = s.nodes[idx];
+        if (cur.x !== snap.x || cur.y !== snap.y) {
+          s.nodes[idx] = snap;
+          scene.huntDrag.current.moved = true;
+          rebuildHuntRoute();
+        }
+      }
+      return;
+    }
     if (inputs.current.activeTool === 'pen') penMove(e);
     if (markerEraseStroke.current) {
       applyMarkerEraseAt(tileAt(e));
@@ -1734,6 +1985,28 @@ export function useMapInteraction(deps: InteractionDeps) {
 
   function onMouseUp() {
     penUp();
+    if (scene.huntDrag.current) {
+      const moved = scene.huntDrag.current.moved;
+      scene.huntDrag.current = null;
+      if (moved) rescatterHunt();
+      return;
+    }
+    if (scene.huntAreaDrag.current) {
+      const d = scene.huntAreaDrag.current;
+      scene.huntAreaDrag.current = null;
+      const area = {
+        minX: Math.min(d.start.x, d.cur.x),
+        minY: Math.min(d.start.y, d.cur.y),
+        maxX: Math.max(d.start.x, d.cur.x),
+        maxY: Math.max(d.start.y, d.cur.y),
+        z: d.start.z
+      };
+      scene.huntArea.current = area;
+      inputs.current.onHuntArea(area);
+      inputs.current.onHuntAreaSelecting(false);
+      emit(`Hunt area: ${area.maxX - area.minX + 1} x ${area.maxY - area.minY + 1}`);
+      return;
+    }
     const bs = selection.box.current;
     if (bs) {
       selection.box.current = null;
@@ -1822,6 +2095,19 @@ export function useMapInteraction(deps: InteractionDeps) {
   function onContextMenu(e: React.MouseEvent) {
     e.preventDefault();
     if (modalOpen.current || !canvasRef.current) return;
+    if (huntEditingActive()) {
+      const ni = huntNodeAt(tileAt(e));
+      if (ni >= 0) {
+        const s = scene.huntSession.current!;
+        s.nodes.splice(ni, 1);
+        scene.huntSelected.current = null;
+        scene.huntDrag.current = null;
+        rebuildHuntRoute();
+        rescatterHunt();
+        emit(`Removed box - ${s.nodes.length} left`);
+        return;
+      }
+    }
     if (inputs.current.activeTool === 'pen') {
       penCancel();
       return;
@@ -2075,6 +2361,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     spawnForm,
     creatureForm,
     beginSpawnResize,
+    beginHuntAreaResize,
     submitSpawnForm,
     closeSpawnForm: () => setSpawnForm(null),
     spawnProperties: openSpawnProperties,
@@ -2093,6 +2380,11 @@ export function useMapInteraction(deps: InteractionDeps) {
     selectDoodad,
     selectHouse,
     generate,
+    huntPreview,
+    rescatterHunt,
+    generateHunt,
+    clearHunt,
+    clearHuntPreview,
     goTo,
     cut: () => {
       cutSelected();

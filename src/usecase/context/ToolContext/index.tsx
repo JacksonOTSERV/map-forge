@@ -7,7 +7,20 @@ import { ResolvedBiome, GenerateOptions } from '~/domain/biome';
 import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
 import { BrushKind, ActiveBrush, isRevealFriendly, PaletteCategoryId } from '~/domain/palette';
 
-import { PaletteReveal, GenerateSignal, ToolContextValue, ToolProviderProps, PaletteCategorySignal } from './types';
+import {
+  HuntArea,
+  HuntMeta,
+  HuntMonster,
+  PaletteReveal,
+  GenerateSignal,
+  HuntViewPreview,
+  ToolContextValue,
+  HuntPreviewParams,
+  HuntPreviewSignal,
+  ToolProviderProps,
+  HuntRescatterSignal,
+  PaletteCategorySignal
+} from './types';
 
 const ToolContext = React.createContext({} as ToolContextValue);
 
@@ -30,6 +43,16 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
   const [paletteCategory, setPaletteCategoryState] = React.useState<PaletteCategorySignal | null>(null);
   const [generateSignal, setGenerateSignal] = React.useState<GenerateSignal | null>(null);
   const [generationProgress, setGenerationProgress] = React.useState<string | null>(null);
+  const [huntSignal, setHuntSignal] = React.useState<HuntPreviewSignal | null>(null);
+  const [huntMeta, setHuntMeta] = React.useState<HuntMeta | null>(null);
+  const [huntArea, setHuntArea] = React.useState<HuntArea | null>(null);
+  const [huntAreaSelecting, setHuntAreaSelecting] = React.useState(false);
+  const [huntEditing, setHuntEditing] = React.useState(false);
+  const [huntView, setHuntView] = React.useState<HuntViewPreview>({ show: false, w: 15, h: 11 });
+  const [huntMonsters, setHuntMonsters] = React.useState<HuntMonster[]>([]);
+  const [huntRescatterSignal, setHuntRescatterSignal] = React.useState<HuntRescatterSignal | null>(null);
+  const [huntGenerateNonce, setHuntGenerateNonce] = React.useState(0);
+  const [huntClearNonce, setHuntClearNonce] = React.useState(0);
 
   React.useEffect(() => {
     const sync = (e: KeyboardEvent) => setCtrlErase(e.ctrlKey);
@@ -173,6 +196,17 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
     []
   );
 
+  const requestHuntPreview = React.useCallback((params: HuntPreviewParams) => {
+    setHuntSignal((s) => ({ ...params, nonce: (s?.nonce ?? 0) + 1 }));
+  }, []);
+
+  const requestHuntRescatter = React.useCallback((params: Omit<HuntRescatterSignal, 'nonce'>) => {
+    setHuntRescatterSignal((s) => ({ ...params, nonce: (s?.nonce ?? 0) + 1 }));
+  }, []);
+
+  const requestHuntGenerate = React.useCallback(() => setHuntGenerateNonce((n) => n + 1), []);
+  const requestHuntClear = React.useCallback(() => setHuntClearNonce((n) => n + 1), []);
+
   const value = React.useMemo<ToolContextValue>(
     () => ({
       activeTool,
@@ -189,6 +223,26 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       generationProgress,
       setGenerationProgress,
       requestGenerate,
+      huntSignal,
+      huntMeta,
+      huntArea,
+      huntAreaSelecting,
+      huntEditing,
+      huntView,
+      huntMonsters,
+      huntRescatterSignal,
+      huntGenerateNonce,
+      huntClearNonce,
+      requestHuntPreview,
+      requestHuntRescatter,
+      requestHuntGenerate,
+      requestHuntClear,
+      setHuntMeta,
+      setHuntArea,
+      setHuntAreaSelecting,
+      setHuntEditing,
+      setHuntView,
+      setHuntMonsters,
       setActiveTool,
       selectBrush,
       setActiveTile,
@@ -218,6 +272,26 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       generationProgress,
       setGenerationProgress,
       requestGenerate,
+      huntSignal,
+      huntMeta,
+      huntArea,
+      huntAreaSelecting,
+      huntEditing,
+      huntView,
+      huntMonsters,
+      huntRescatterSignal,
+      huntGenerateNonce,
+      huntClearNonce,
+      requestHuntPreview,
+      requestHuntRescatter,
+      requestHuntGenerate,
+      requestHuntClear,
+      setHuntMeta,
+      setHuntArea,
+      setHuntAreaSelecting,
+      setHuntEditing,
+      setHuntView,
+      setHuntMonsters,
       setActiveTool,
       selectBrush,
       setActiveTile,

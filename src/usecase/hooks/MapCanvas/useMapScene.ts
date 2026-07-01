@@ -1,8 +1,23 @@
 import React from 'react';
 
+import { Mask, Point } from '~/lib/generator/hunt';
 import { Position, PreviewTile } from '~/domain/map';
+import { HuntRouteRender } from '~/lib/generator/huntRoute';
+import { HuntArea } from '~/usecase/context/ToolContext/types';
 
 import { ClipboardGhostTile } from './meshBuilder';
+
+export interface HuntSession {
+  mask: Mask;
+  minX: number;
+  minY: number;
+  spawntime: number;
+  boxSize: number;
+  viewW: number;
+  viewH: number;
+  nodes: Point[];
+  monsterTiles: Point[];
+}
 
 export interface MoveDrag {
   from: Position;
@@ -47,6 +62,15 @@ export interface MapScene {
   markerDest: React.MutableRefObject<Position | null>;
   spawnResize: React.MutableRefObject<{ center: Position; radius: number } | null>;
   gotoHighlight: React.MutableRefObject<{ x: number; y: number; z: number; start: number } | null>;
+  huntRoute: React.MutableRefObject<HuntRouteRender | null>;
+  huntRouteZ: React.MutableRefObject<number>;
+  huntArea: React.MutableRefObject<HuntArea | null>;
+  huntAreaDrag: React.MutableRefObject<{ start: Position; cur: Position } | null>;
+  huntSession: React.MutableRefObject<HuntSession | null>;
+  huntDrag: React.MutableRefObject<{ index: number; moved: boolean } | null>;
+  huntSelected: React.MutableRefObject<number | null>;
+  huntAreaBoxRef: React.RefObject<HTMLDivElement>;
+  huntCanvasRef: React.RefObject<HTMLCanvasElement>;
 }
 
 export function useMapScene(): MapScene {
@@ -75,6 +99,15 @@ export function useMapScene(): MapScene {
     markerDrag: React.useRef<MarkerDrag | null>(null),
     markerDest: React.useRef<Position | null>(null),
     spawnResize: React.useRef<{ center: Position; radius: number } | null>(null),
-    gotoHighlight: React.useRef<{ x: number; y: number; z: number; start: number } | null>(null)
+    gotoHighlight: React.useRef<{ x: number; y: number; z: number; start: number } | null>(null),
+    huntRoute: React.useRef<HuntRouteRender | null>(null),
+    huntRouteZ: React.useRef(0),
+    huntArea: React.useRef<HuntArea | null>(null),
+    huntAreaDrag: React.useRef<{ start: Position; cur: Position } | null>(null),
+    huntSession: React.useRef<HuntSession | null>(null),
+    huntDrag: React.useRef<{ index: number; moved: boolean } | null>(null),
+    huntSelected: React.useRef<number | null>(null),
+    huntAreaBoxRef: React.useRef<HTMLDivElement>(null),
+    huntCanvasRef: React.useRef<HTMLCanvasElement>(null)
   };
 }

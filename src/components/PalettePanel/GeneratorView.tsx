@@ -4,15 +4,18 @@ import { Dices, Sparkles } from 'lucide-react';
 
 import { cn } from '~/usecase/classNames';
 import { ResolvedBiome } from '~/domain/biome';
+import { PaletteTileset } from '~/domain/palette';
 import { Input } from '~/components/commons/ui/input';
 import { resolveMountain } from '~/adapter/mountains';
 import { useTool } from '~/usecase/context/ToolContext';
 import { Button } from '~/components/commons/ui/button';
 import { Slider } from '~/components/commons/ui/slider';
+import { getSetting, setSetting } from '~/adapter/settings';
 import { Checkbox } from '~/components/commons/ui/checkbox';
 import { useAssetsBundle } from '~/usecase/context/AssetsContext';
 import { loadBiomes, BrushOption, loadBrushOptions } from '~/adapter/biomes';
 
+import HuntView from './HuntView';
 import BrushImage from './BrushImage';
 import BiomeEditor from './BiomeEditor';
 import BrushSelect from './BrushSelect';
@@ -271,15 +274,66 @@ const GeneratorPanel = () => {
   );
 };
 
-const GeneratorView = () => (
-  <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-    <GeneratorPanel />
+type GenMode = 'terrain' | 'hunt';
 
-    <p className="mt-auto pt-1 text-[10px] leading-relaxed text-muted-foreground">
-      Select an area on the map, then Generate. Output goes into the selection on the current floor; mountains stack upward onto
-      higher floors.
-    </p>
+const ModeToggle = ({ mode, onMode }: { mode: GenMode; onMode: (m: GenMode) => void }) => (
+  <div className="flex flex-shrink-0 gap-1 p-2 pb-0">
+    {(['terrain', 'hunt'] as GenMode[]).map((m) => (
+      <button
+        key={m}
+        onClick={() => onMode(m)}
+        className={cn(
+          'flex-1 rounded-md border px-2 py-1 text-xs font-medium capitalize transition-colors',
+          mode === m
+            ? 'border-primary bg-primary/15 text-foreground'
+            : 'border-border/50 text-muted-foreground hover:bg-item-hover'
+        )}
+      >
+        {m}
+      </button>
+    ))}
   </div>
 );
+
+const GEN_MODE_KEY = 'generatorMode';
+
+const GeneratorView = ({ creatureTilesets }: { creatureTilesets?: PaletteTileset[] }) => {
+  const [mode, setMode] = React.useState<GenMode>('terrain');
+  const restored = React.useRef(false);
+
+  React.useEffect(() => {
+    getSetting<GenMode>(GEN_MODE_KEY, 'terrain')
+      .then((m) => {
+        if (m === 'terrain' || m === 'hunt') setMode(m);
+      })
+      .catch(() => void 0)
+      .finally(() => {
+        restored.current = true;
+      });
+  }, []);
+
+  React.useEffect(() => {
+    if (!restored.current) return;
+    setSetting(GEN_MODE_KEY, mode).catch(() => void 0);
+  }, [mode]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ModeToggle mode={mode} onMode={setMode} />
+      {mode === 'hunt' ? (
+        <HuntView creatureTilesets={creatureTilesets} />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+          <GeneratorPanel />
+
+          <p className="mt-auto pt-1 text-[10px] leading-relaxed text-muted-foreground">
+            Select an area on the map, then Generate. Output goes into the selection on the current floor; mountains stack upward
+            onto higher floors.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default GeneratorView;

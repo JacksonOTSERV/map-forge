@@ -6,6 +6,7 @@ import { DEFAULT_COPY_POSITION_FORMAT } from '~/usecase/positionFormat';
 const KEY = 'clientConfig';
 const GENERAL_KEY = 'generalConfig';
 const EDITOR_KEY = 'editorConfig';
+const HUNT_KEY = 'huntConfig';
 export async function loadAssetPath(key: string): Promise<string> {
   return getSetting<string>(key, '');
 }
@@ -97,4 +98,31 @@ export async function loadEditorConfig(): Promise<EditorConfig> {
 
 export async function saveEditorConfig(config: EditorConfig): Promise<void> {
   await setSetting(EDITOR_KEY, config);
+}
+
+export interface HuntConfig {
+  viewWidth: number;
+  viewHeight: number;
+  aggroWidth: number;
+  aggroHeight: number;
+  boxSize: number;
+  defaultSpawntime: number;
+}
+
+export const defaultHuntConfig: HuntConfig = {
+  viewWidth: 15,
+  viewHeight: 11,
+  aggroWidth: 15,
+  aggroHeight: 11,
+  boxSize: 8,
+  defaultSpawntime: 60
+};
+
+export async function loadHuntConfig(): Promise<HuntConfig> {
+  const stored = await getSetting<Partial<HuntConfig>>(HUNT_KEY, {});
+  return { ...defaultHuntConfig, ...stored };
+}
+
+export async function saveHuntConfig(config: HuntConfig): Promise<void> {
+  await setSetting(HUNT_KEY, config);
 }

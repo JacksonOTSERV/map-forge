@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import { cn } from '~/usecase/classNames';
 import { Input } from '~/components/commons/ui/input';
+import HuntTab from '~/components/Preferences/HuntTab';
 import { Button } from '~/components/commons/ui/button';
 import EditorTab from '~/components/Preferences/EditorTab';
 import GeneralTab from '~/components/Preferences/GeneralTab';
@@ -18,6 +19,7 @@ import {
   DialogDescription
 } from '~/components/commons/ui/dialog';
 import {
+  HuntConfig,
   loadDataDir,
   saveDataDir,
   ClientConfig,
@@ -25,18 +27,21 @@ import {
   GeneralConfig,
   loadAssetPath,
   saveAssetPath,
+  loadHuntConfig,
+  saveHuntConfig,
   loadClientConfig,
   loadEditorConfig,
   saveClientConfig,
   saveEditorConfig,
   loadGeneralConfig,
   saveGeneralConfig,
+  defaultHuntConfig,
   defaultClientConfig,
   defaultEditorConfig,
   defaultGeneralConfig
 } from '~/adapter/preferences';
 
-type TabId = 'general' | 'editor' | 'client' | 'assets';
+type TabId = 'general' | 'editor' | 'hunt' | 'client' | 'assets';
 
 interface PreferencesProps {
   open: boolean;
@@ -54,6 +59,7 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
   const [config, setConfig] = React.useState<ClientConfig>(defaultClientConfig);
   const [general, setGeneral] = React.useState<GeneralConfig>(defaultGeneralConfig);
   const [editor, setEditor] = React.useState<EditorConfig>(defaultEditorConfig);
+  const [hunt, setHunt] = React.useState<HuntConfig>(defaultHuntConfig);
   const [assetPath, setAssetPath] = React.useState('');
   const [assetStatus, setAssetStatus] = React.useState('');
   const [dataDir, setDataDir] = React.useState('');
@@ -73,6 +79,7 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
     void loadClientConfig().then(setConfig);
     void loadGeneralConfig().then(setGeneral);
     void loadEditorConfig().then(setEditor);
+    void loadHuntConfig().then(setHunt);
     void loadDataDir().then(setDataDir);
   }, [dialogOpen, initialTab]);
 
@@ -114,6 +121,7 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
   const tabs: { id: TabId; label: string }[] = [
     { id: 'general', label: 'General' },
     { id: 'editor', label: 'Editor' },
+    { id: 'hunt', label: 'Hunt' },
     ...(ui.clientVersions ? [{ id: 'client' as TabId, label: 'Client Version' }] : []),
     ...(ui.assets ? [{ id: 'assets' as TabId, label: ui.assets.label || 'Assets' }] : [])
   ];
@@ -141,6 +149,7 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
     void saveClientConfig(config);
     void saveGeneralConfig(general);
     void saveEditorConfig(editor);
+    void saveHuntConfig(hunt);
     onSaved?.();
     onOpenChange(false);
   };
@@ -180,6 +189,7 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
               />
             )}
             {activeTab === 'editor' && <EditorTab config={editor} onChange={setEditor} />}
+            {activeTab === 'hunt' && <HuntTab config={hunt} onChange={setHunt} />}
             {activeTab === 'client' && <ClientVersionTab config={config} onChange={setConfig} />}
             {activeTab === 'assets' && ui.assets && (
               <div className="flex flex-col gap-3">

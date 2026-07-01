@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { isZoneTool } from '~/domain/tools';
+import { Point } from '~/lib/generator/hunt';
 import { visibleZoneBits } from '~/domain/zones';
 import { slotUV, GLRenderer } from '~/usecase/glRenderer';
 import { MapCanvasInputs } from '~/components/MapCanvas/types';
@@ -250,6 +251,103 @@ export function useMapRenderer(deps: RendererDeps) {
       fromRadius: a?.radius ?? rs.radius,
       area: { x: rs.center.x, y: rs.center.y, z: rs.center.z, radius: rs.radius }
     };
+  }
+
+  function drawHuntPreview(camX: number, camY: number, zoom: number, vw: number, vh: number) {
+    const canvas = scene.huntCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const bw = Math.round(vw * dpr);
+    const bh = Math.round(vh * dpr);
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, vw, vh);
+
+    const floorZ = inputs.current.floorZ;
+    const drag = scene.huntAreaDrag.current;
+    const area = drag
+      ? {
+          minX: Math.min(drag.start.x, drag.cur.x),
+          minY: Math.min(drag.start.y, drag.cur.y),
+          maxX: Math.max(drag.start.x, drag.cur.x),
+          maxY: Math.max(drag.start.y, drag.cur.y),
+          z: drag.start.z
+        }
+      : scene.huntArea.current;
+    if (area && area.z === floorZ) {
+      const rx = (area.minX * TILE - camX) * zoom;
+      const ry = (area.minY * TILE - camY) * zoom;
+      const rw = (area.maxX - area.minX + 1) * TILE * zoom;
+      const rh = (area.maxY - area.minY + 1) * TILE * zoom;
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.restore();
+    }
+
+    const route = scene.huntRoute.current;
+    if (!route || route.nodes.length === 0 || scene.huntRouteZ.current !== floorZ) return;
+
+    const sx = (p: Point) => (p.x * TILE + TILE / 2 - camX) * zoom;
+    const sy = (p: Point) => (p.y * TILE + TILE / 2 - camY) * zoom;
+
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    for (const path of route.paths) {
+      if (path.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx(path[0]), sy(path[0]));
+      for (let i = 1; i < path.length; i++) ctx.lineTo(sx(path[i]), sy(path[i]));
+      ctx.stroke();
+    }
+
+    const r = Math.max(4, Math.min(10, TILE * zoom * 0.28));
+    const selected = scene.huntSelected.current;
+    const view = inputs.current.huntView;
+    if (view.show && selected != null && selected < route.nodes.length && view.w > 0 && view.h > 0) {
+      const node = route.nodes[selected];
+      const vx = (node.x - Math.floor(view.w / 2)) * TILE;
+      const vy = (node.y - Math.floor(view.h / 2)) * TILE;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect((vx - camX) * zoom, (vy - camY) * zoom, view.w * TILE * zoom, view.h * TILE * zoom);
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.06)';
+      ctx.fillRect((vx - camX) * zoom, (vy - camY) * zoom, view.w * TILE * zoom, view.h * TILE * zoom);
+      ctx.restore();
+    }
+    ctx.font = `${Math.round(r * 1.2)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < route.nodes.length; i++) {
+      const px = sx(route.nodes[i]);
+      const py = sy(route.nodes[i]);
+      const isSel = i === selected;
+      if (isSel) {
+        ctx.beginPath();
+        ctx.arc(px, py, r + 3, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = isSel ? 'rgba(250, 204, 21, 0.95)' : 'rgba(14, 165, 233, 0.95)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(224, 242, 254, 0.95)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = isSel ? '#1c1917' : '#f0f9ff';
+      ctx.fillText(String(i + 1), px, py);
+    }
   }
 
   function previewChunkKeys(pv: { from: Position; fromRadius: number; area: SpawnArea }): string[] {
@@ -619,6 +717,23 @@ export function useMapRenderer(deps: RendererDeps) {
     el.style.transform = `translate(${(x0 - camX) * zoom}px, ${(y0 - camY) * zoom}px)`;
   }
 
+  function updateHuntAreaBox(camX: number, camY: number, zoom: number) {
+    const el = scene.huntAreaBoxRef.current;
+    if (!el) return;
+    const area = scene.huntArea.current;
+    const active = inputs.current.huntEditing && !inputs.current.huntAreaSelecting && !scene.huntAreaDrag.current;
+    if (!area || !active || area.z !== inputs.current.floorZ) {
+      el.style.display = 'none';
+      return;
+    }
+    const x0 = area.minX * TILE;
+    const y0 = area.minY * TILE;
+    el.style.display = 'block';
+    el.style.width = `${(area.maxX - area.minX + 1) * TILE * zoom}px`;
+    el.style.height = `${(area.maxY - area.minY + 1) * TILE * zoom}px`;
+    el.style.transform = `translate(${(x0 - camX) * zoom}px, ${(y0 - camY) * zoom}px)`;
+  }
+
   function updateHouseExits(camX: number, camY: number, zoom: number) {
     const layer = scene.houseExitsRef.current;
     if (!layer) return;
@@ -953,14 +1068,41 @@ export function useMapRenderer(deps: RendererDeps) {
       if (ghost.length > 0) renderer.drawGhost(ghost, camX, camY, scale, 0.6);
     }
 
+    const hSession = scene.huntSession.current;
+    const hMonsters = inputs.current.huntMonsters;
+    if (inputs.current.huntEditing && hSession && hMonsters.length > 0 && scene.huntRouteZ.current === floorZ) {
+      const placements: CreaturePlacement[] = hSession.monsterTiles.map((t, i) => {
+        const m = hMonsters[i % hMonsters.length];
+        return {
+          x: t.x + hSession.minX,
+          y: t.y + hSession.minY,
+          z: floorZ,
+          name: m.name,
+          isNpc: false,
+          lookType: m.lookType,
+          head: m.head,
+          body: m.body,
+          legs: m.legs,
+          feet: m.feet,
+          spawntime: 0,
+          direction: 2
+        };
+      });
+      const inst: number[] = [];
+      appendCreatures(inst, placements, inputs.current.outfits, atlas, frameTick.current, missing);
+      if (inst.length > 0) renderer.drawGhost(new Float32Array(inst), camX, camY, scale, 0.55);
+    }
+
     renderer.endFrame();
     lastChunksDrawn.current = drawn;
 
     updateGhost(camX, camY, zoom);
     updateSelectionBox(camX, camY, zoom);
     updateSpawnBox(camX, camY, zoom);
+    updateHuntAreaBox(camX, camY, zoom);
     updateHouseExits(camX, camY, zoom);
     drawTooltips(camX, camY, zoom, vw, vh);
+    drawHuntPreview(camX, camY, zoom, vw, vh);
 
     flushTileRequests();
     flushTooltipRequests();

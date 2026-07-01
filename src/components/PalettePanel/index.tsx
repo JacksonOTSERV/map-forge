@@ -425,7 +425,7 @@ const PalettePanel = ({
       ) : isHouses ? (
         <HousesList towns={towns} houses={houses} onGoto={onGotoHouse} onEdit={onEditHouses} />
       ) : isGenerator ? (
-        <GeneratorView />
+        <GeneratorView creatureTilesets={creatureTilesets} />
       ) : (
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
           {tiles.length === 0 ? (
