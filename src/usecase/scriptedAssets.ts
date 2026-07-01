@@ -31,6 +31,7 @@ export async function buildScriptedAssets(sprPath: string): Promise<LoadedAssets
       hasOffset: t.hasOffset,
       hasElevation: t.hasElevation,
       stackable: false,
+      hangable: false,
       isUnpassable: false,
       miniMap: false,
       miniMapColor: 0,

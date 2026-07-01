@@ -3,14 +3,17 @@ import React from 'react';
 import { Position } from '~/domain/map';
 import { isZoneTool } from '~/domain/tools';
 import { ZONE_TOOL_FLAG } from '~/domain/zones';
+import { loadSprites } from '~/adapter/sprites';
+import { mapClientIds } from '~/adapter/assets';
 import { generateApply } from '~/adapter/biomes';
+import { brushForItem } from '~/adapter/palette';
 import { selectionFloorBoxes } from '~/usecase/floors';
 import { buildItemPreview } from '~/usecase/itemPreview';
 import { planGeneration } from '~/lib/generator/generate';
 import { formatPosition } from '~/usecase/positionFormat';
-import { MapSpawns, emptyMapSpawns, buildMapSpawns } from '~/domain/creature';
 import { MountainOptions, ResolvedMountain } from '~/domain/mountain';
 import { GenPlan, ResolvedBiome, GenerateOptions } from '~/domain/biome';
+import { MapSpawns, emptyMapSpawns, buildMapSpawns } from '~/domain/creature';
 import { waypointAt, MapWaypoints, emptyMapWaypoints } from '~/domain/waypoint';
 import { TILE, CHUNK, MOVE_THRESHOLD_SQ } from '~/components/MapCanvas/constants';
 import { PEN_CURSOR, PEN_MOVE_CURSOR, PEN_CONVERT_CURSOR } from '~/usecase/penCursors';
@@ -476,7 +479,8 @@ export function useMapInteraction(deps: InteractionDeps) {
       brush.serverId,
       brush.isGround,
       brush.kind === 'doodad',
-      inputs.current.automagic
+      inputs.current.automagic,
+      brush.kind === 'doodad' ? brush.name : ''
     )
       .then((touched) => {
         if (touched.length === 0) for (let i = 0; i < xs.length; i++) tiles.queueRefetch(xs[i], ys[i], pos.z);
@@ -515,7 +519,8 @@ export function useMapInteraction(deps: InteractionDeps) {
       brush.serverId,
       brush.isGround,
       brush.kind === 'doodad',
-      inputs.current.automagic
+      inputs.current.automagic,
+      brush.kind === 'doodad' ? brush.name : ''
     )
       .then((touched) => refetchKeysNow(touched, z))
       .catch((err) => console.error('Failed to paint box', err));
@@ -801,7 +806,16 @@ export function useMapInteraction(deps: InteractionDeps) {
     if (key === previewKey.current) return;
     previewKey.current = key;
     const seq = ++previewSeq.current;
-    previewPaint(inputs.current.map.id, z, xs, ys, brush.serverId, brush.isGround, brush.kind === 'doodad')
+    previewPaint(
+      inputs.current.map.id,
+      z,
+      xs,
+      ys,
+      brush.serverId,
+      brush.isGround,
+      brush.kind === 'doodad',
+      brush.kind === 'doodad' ? brush.name : ''
+    )
       .then((tiles) => {
         if (seq === previewSeq.current) scene.boxGhostTiles.current = tiles;
       })
@@ -1282,8 +1296,46 @@ export function useMapInteraction(deps: InteractionDeps) {
     emit(`Copied ${text}`);
   }
 
-  function selectGround(item: HoverItem) {
+  async function groundPreview(
+    paint: number,
+    clickedClientId: number
+  ): Promise<{ preview: string | undefined; cols: number; rows: number }> {
+    try {
+      const [clientId] = await mapClientIds([paint]);
+      const thing = clientId ? inputs.current.items.get(clientId) : undefined;
+      if (thing) {
+        await loadSprites(inputs.current.sprPath, thing.spriteIndex, inputs.current.transparency, atlas.data.current);
+        const preview = buildItemPreview(thing, atlas.data.current);
+        if (preview) return { preview, cols: thing.width ?? 1, rows: thing.height ?? 1 };
+      }
+    } catch (err) {
+      console.error('Ground preview failed', err);
+    }
+    const fallback = inputs.current.items.get(clickedClientId);
+    return { preview: buildItemPreview(fallback, atlas.data.current), cols: fallback?.width ?? 1, rows: fallback?.height ?? 1 };
+  }
+
+  async function selectGround(item: HoverItem) {
     const thing = inputs.current.items.get(item.clientId);
+    const ref = brushForItem(item.serverId);
+    if (ref?.kind === 'ground') {
+      const paint = ref.paint ?? item.serverId;
+      const { preview, cols, rows } = await groundPreview(paint, item.clientId);
+      inputs.current.onSelectBrush({
+        key: `ground-${paint}`,
+        name: ref.name,
+        kind: 'ground',
+        serverId: paint,
+        isGround: true,
+        cols,
+        rows,
+        preview
+      });
+      inputs.current.onRevealBrush?.('terrain', ref.look ?? paint, ref.name);
+      emit(`Selected "${ref.name}"`);
+      setMenu(null);
+      return;
+    }
     inputs.current.onSelectBrush({
       key: `ground-${item.serverId}`,
       name: item.name || `Item ${item.serverId}`,
@@ -1296,6 +1348,25 @@ export function useMapInteraction(deps: InteractionDeps) {
     });
     inputs.current.onRevealBrush?.('terrain', item.serverId);
     emit(`Selected "${item.name || `Item ${item.serverId}`}"`);
+    setMenu(null);
+  }
+
+  function selectDoodad(item: HoverItem) {
+    const thing = inputs.current.items.get(item.clientId);
+    const ref = brushForItem(item.serverId);
+    const name = ref?.name || item.name || `Item ${item.serverId}`;
+    inputs.current.onSelectBrush({
+      key: `doodad-${item.serverId}`,
+      name,
+      kind: 'doodad',
+      serverId: item.serverId,
+      isGround: false,
+      cols: thing?.width ?? 1,
+      rows: thing?.height ?? 1,
+      preview: buildItemPreview(thing, atlas.data.current)
+    });
+    inputs.current.onRevealBrush?.('doodad', item.serverId, ref?.name);
+    emit(`Selected "${name}"`);
     setMenu(null);
   }
 
@@ -1742,13 +1813,25 @@ export function useMapInteraction(deps: InteractionDeps) {
         }
       }
     }
+    const top = onMarker ? null : info.item;
+    const topRef = top ? brushForItem(top.serverId) : null;
+    const groundHover = onMarker ? null : topRef?.kind === 'ground' ? top : groundAt(tile);
+    const groundName = groundHover
+      ? topRef?.kind === 'ground'
+        ? topRef.name
+        : (brushForItem(groundHover.serverId)?.name ?? null)
+      : null;
+    const doodadHover = topRef?.kind === 'doodad' ? top : null;
     setMenu({
       clientX: e.clientX,
       clientY: e.clientY,
       tile,
       dest,
-      item: onMarker ? null : info.item,
-      ground: onMarker ? null : groundAt(tile),
+      item: top,
+      ground: groundHover,
+      groundName,
+      doodad: doodadHover,
+      doodadName: doodadHover ? topRef!.name : null,
       spawn: spawnSel ? { x: spawnSel.x, y: spawnSel.y, z: spawnSel.z } : null,
       creature: creatureSel ? { x: creatureSel.x, y: creatureSel.y, z: creatureSel.z } : null,
       waypoint: waypointSel ? { x: waypointSel.x, y: waypointSel.y, z: waypointSel.z } : null,
@@ -1965,6 +2048,7 @@ export function useMapInteraction(deps: InteractionDeps) {
     editWaypoints,
     selectRaw,
     selectGround,
+    selectDoodad,
     selectHouse,
     generate,
     goTo,

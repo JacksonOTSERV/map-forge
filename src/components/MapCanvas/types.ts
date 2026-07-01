@@ -60,6 +60,9 @@ export interface ContextMenuState {
   dest: Position | null;
   item: HoverItem | null;
   ground: HoverItem | null;
+  groundName: string | null;
+  doodad: HoverItem | null;
+  doodadName: string | null;
   spawn: Position | null;
   creature: Position | null;
   waypoint: Position | null;

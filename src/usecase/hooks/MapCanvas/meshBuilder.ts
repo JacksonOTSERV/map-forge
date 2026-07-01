@@ -183,7 +183,7 @@ export function buildSpawnAreaGhost(
       for (let ii = ct.itemOffset[found]; ii < end; ii++) {
         const thing = items.get(ct.clientIds[ii]);
         if (!thing || thing.spriteIndex.length === 0 || (!thing.isGround && !thing.isGroundBorder)) continue;
-        const px = thing.patternX > 0 ? tx % thing.patternX : 0;
+        const px = thing.hangable ? 0 : thing.patternX > 0 ? tx % thing.patternX : 0;
         const py = thing.patternY > 0 ? ty % thing.patternY : 0;
         const ox = thing.offsetX || 0;
         const oy = thing.offsetY || 0;
@@ -271,7 +271,7 @@ export function buildClipboardGhost(
     for (const it of tile.items) {
       const thing = items.get(it.clientId);
       if (!thing || thing.spriteIndex.length === 0) continue;
-      const px = thing.patternX > 0 ? tx % thing.patternX : 0;
+      const px = thing.hangable ? 0 : thing.patternX > 0 ? tx % thing.patternX : 0;
       const py = thing.patternY > 0 ? ty % thing.patternY : 0;
       const countStack = isCountStack(thing);
       const stackIdx = countStack ? stackSpriteIndex(thing, it.count) : 0;
@@ -340,7 +340,7 @@ export function buildSelectionGhost(
       if (!thing || thing.spriteIndex.length === 0) continue;
 
       if (sel.all || ii === top) {
-        const px = thing.patternX > 0 ? tx % thing.patternX : 0;
+        const px = thing.hangable ? 0 : thing.patternX > 0 ? tx % thing.patternX : 0;
         const py = thing.patternY > 0 ? ty % thing.patternY : 0;
         const countStack = isCountStack(thing);
         const stackIdx = countStack ? stackSpriteIndex(thing, ct.counts[ii]) : 0;

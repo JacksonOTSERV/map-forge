@@ -458,6 +458,7 @@ pub fn paint_tiles(
 	is_ground: bool,
 	is_doodad: bool,
 	automagic: bool,
+	brush_name: String,
 	otb_state: tauri::State<OtbState>,
 	map_state: tauri::State<MapState>,
 	materials_state: tauri::State<MaterialsState>,
@@ -488,7 +489,7 @@ pub fn paint_tiles(
 	let edit_tiles: Vec<(u16, u16)> = xs.iter().zip(ys.iter()).map(|(&a, &b)| (a, b)).collect();
 	m.ensure_tiles(z, &edit_tiles, otb)?;
 	m.record_begin();
-	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, "", automagic, false);
+	let touched = run_paint(m, mats, &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, &brush_name, automagic, false);
 	m.record_commit(ACTION_PAINT);
 	Ok(touched.into_iter().collect())
 }
@@ -689,6 +690,8 @@ pub fn preview_paint(
 	server_id: u16,
 	is_ground: bool,
 	is_doodad: bool,
+	brush_name: String,
+	delta_only: bool,
 	otb_state: tauri::State<OtbState>,
 	map_state: tauri::State<MapState>,
 	materials_state: tauri::State<MaterialsState>,
@@ -736,7 +739,7 @@ pub fn preview_paint(
 		}
 	}
 
-	run_paint(&mut scratch, Some(mats), &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, "", true, false);
+	run_paint(&mut scratch, Some(mats), &place, otb, z, &xs, &ys, server_id, client_id, is_ground, is_doodad, &brush_name, true, false);
 
 	let mut out: Vec<u8> = Vec::new();
 	push_u32(&mut out, 0);
@@ -744,13 +747,19 @@ pub fn preview_paint(
 	for y in clamp(min_y as i32 - 1)..=clamp(max_y as i32 + 1) {
 		for x in clamp(min_x as i32 - 1)..=clamp(max_x as i32 + 1) {
 			let new = stack_at(&scratch, z, x, y);
-			if new == stack_at(real, z, x, y) {
+			let old = stack_at(real, z, x, y);
+			if new == old {
+				continue;
+			}
+			let start = if delta_only { new.iter().zip(old.iter()).take_while(|(a, b)| a == b).count() } else { 0 };
+			let added = &new[start..];
+			if added.is_empty() {
 				continue;
 			}
 			push_u16(&mut out, x);
 			push_u16(&mut out, y);
-			push_u16(&mut out, new.len() as u16);
-			for (client, _) in &new {
+			push_u16(&mut out, added.len() as u16);
+			for (client, _) in added {
 				push_u16(&mut out, *client);
 			}
 			count += 1;

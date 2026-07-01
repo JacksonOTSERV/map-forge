@@ -2,13 +2,13 @@ import React from 'react';
 
 import { isZoneTool } from '~/domain/tools';
 import { visibleZoneBits } from '~/domain/zones';
-import { visibleFloorRange, floorShift } from '~/usecase/floors';
 import { slotUV, GLRenderer } from '~/usecase/glRenderer';
 import { MapCanvasInputs } from '~/components/MapCanvas/types';
+import { floorShift, visibleFloorRange } from '~/usecase/floors';
 import { SpawnArea, CreaturePlacement } from '~/domain/creature';
 import { Position, ChunkTiles, PreviewTile } from '~/domain/map';
 import { isCountStack, getSpriteIndex, stackSpriteIndex } from '~/domain/tibia';
-import { packChunkKey, fetchMapChunks, fetchChunkTooltips } from '~/adapter/map';
+import { packChunkKey, previewPaint, fetchMapChunks, fetchChunkTooltips } from '~/adapter/map';
 import { TooltipBox, layoutTooltip, drawTooltipBox, buildTooltipFields, resolveTooltipTheme } from '~/usecase/tooltipOverlay';
 import {
   TILE,
@@ -70,6 +70,35 @@ export function useMapRenderer(deps: RendererDeps) {
   const prevPreviewKeys = React.useRef<string[]>([]);
   const prevSprPath = React.useRef('');
   const overlayHasContent = React.useRef(false);
+  const doodadGhost = React.useRef<PreviewTile[] | null>(null);
+  const doodadGhostKey = React.useRef<string | null>(null);
+  const doodadGhostSeq = React.useRef(0);
+
+  function updateDoodadGhost(hover: Position | null, floorZ: number) {
+    const brush = inputs.current.activeBrush;
+    const active =
+      inputs.current.activeTool === 'brush' &&
+      brush?.kind === 'doodad' &&
+      brush.serverId != null &&
+      !scene.ctrlDown.current &&
+      !selection.box.current &&
+      hover != null &&
+      hover.z === floorZ;
+    if (!active || !brush || brush.serverId == null || !hover) {
+      doodadGhost.current = null;
+      doodadGhostKey.current = null;
+      return;
+    }
+    const key = `${floorZ},${brush.name},${hover.x},${hover.y}`;
+    if (key === doodadGhostKey.current) return;
+    doodadGhostKey.current = key;
+    const seq = ++doodadGhostSeq.current;
+    previewPaint(inputs.current.map.id, floorZ, [hover.x], [hover.y], brush.serverId, false, true, brush.name, true)
+      .then((tiles) => {
+        if (seq === doodadGhostSeq.current) doodadGhost.current = tiles;
+      })
+      .catch(() => void 0);
+  }
 
   function flushTileRequests() {
     if (inputs.current.paused) return;
@@ -314,7 +343,7 @@ export function useMapRenderer(deps: RendererDeps) {
         for (let ii = ct.itemOffset[i]; ii < end; ii++) {
           const thing = items.get(ct.clientIds[ii]);
           if (!thing || thing.spriteIndex.length === 0) continue;
-          const px = thing.patternX > 0 ? tx % thing.patternX : 0;
+          const px = thing.hangable ? 0 : thing.patternX > 0 ? tx % thing.patternX : 0;
           const py = thing.patternY > 0 ? ty % thing.patternY : 0;
           const countStack = isCountStack(thing);
           const stackIdx = countStack ? stackSpriteIndex(thing, ct.counts[ii]) : 0;
@@ -457,7 +486,7 @@ export function useMapRenderer(deps: RendererDeps) {
       for (let ii = 0; ii < t.clientIds.length; ii++) {
         const thing = items.get(t.clientIds[ii]);
         if (!thing || thing.spriteIndex.length === 0) continue;
-        const px = thing.patternX > 0 ? tx % thing.patternX : 0;
+        const px = thing.hangable ? 0 : thing.patternX > 0 ? tx % thing.patternX : 0;
         const py = thing.patternY > 0 ? ty % thing.patternY : 0;
         const ox = (thing.offsetX || 0) + drawElevation;
         const oy = (thing.offsetY || 0) + drawElevation;
@@ -503,6 +532,12 @@ export function useMapRenderer(deps: RendererDeps) {
     const showHouse = tool === 'house' && inputs.current.activeHouseId != null;
 
     if (selection.box.current || !tile || (!showBrush && !showEraser && !showZone && !showHouse)) {
+      ghost.style.display = 'none';
+      outline.style.display = 'none';
+      return;
+    }
+
+    if (showBrush && brush?.kind === 'doodad') {
       ghost.style.display = 'none';
       outline.style.display = 'none';
       return;
@@ -873,6 +908,12 @@ export function useMapRenderer(deps: RendererDeps) {
     const previewTiles = scene.boxGhostTiles.current;
     if (previewTiles && previewTiles.length > 0 && selection.box.current) {
       const ghost = buildPreviewGhost(previewTiles, missing);
+      if (ghost.length > 0) renderer.drawGhost(ghost, camX, camY, scale, 0.6);
+    }
+
+    updateDoodadGhost(hover, floorZ);
+    if (doodadGhost.current && doodadGhost.current.length > 0) {
+      const ghost = buildPreviewGhost(doodadGhost.current, missing);
       if (ghost.length > 0) renderer.drawGhost(ghost, camX, camY, scale, 0.6);
     }
 

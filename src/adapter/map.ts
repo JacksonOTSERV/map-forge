@@ -163,9 +163,10 @@ export async function paintTiles(
   serverId: number,
   isGround: boolean,
   isDoodad: boolean,
-  automagic: boolean
+  automagic: boolean,
+  brushName = ''
 ): Promise<number[]> {
-  return invoke<number[]>('paint_tiles', { mapId, z, xs, ys, serverId, isGround, isDoodad, automagic });
+  return invoke<number[]>('paint_tiles', { mapId, z, xs, ys, serverId, isGround, isDoodad, automagic, brushName });
 }
 
 export async function paintZone(
@@ -280,9 +281,21 @@ export async function previewPaint(
   ys: number[],
   serverId: number,
   isGround: boolean,
-  isDoodad: boolean
+  isDoodad: boolean,
+  brushName = '',
+  deltaOnly = false
 ): Promise<PreviewTile[]> {
-  const response = await invoke<Uint8Array | ArrayBuffer>('preview_paint', { mapId, z, xs, ys, serverId, isGround, isDoodad });
+  const response = await invoke<Uint8Array | ArrayBuffer>('preview_paint', {
+    mapId,
+    z,
+    xs,
+    ys,
+    serverId,
+    isGround,
+    isDoodad,
+    brushName,
+    deltaOnly
+  });
   const u8 = toUint8(response);
   const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   let o = 0;

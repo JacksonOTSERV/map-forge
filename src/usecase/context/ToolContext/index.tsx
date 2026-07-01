@@ -78,6 +78,7 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
 
   React.useEffect(() => {
     if (activeTool !== 'brush' || !activeTile || activeTile.kind !== 'ground') return;
+    if (activeBrush?.serverId === activeTile.paintId) return;
     setActiveBrush({
       key: `tile:${activeTile.paintId}`,
       name: activeTile.name,
@@ -85,7 +86,7 @@ export const ToolProvider = ({ children }: ToolProviderProps) => {
       serverId: activeTile.paintId,
       isGround: true
     });
-  }, [activeTool, activeTile]);
+  }, [activeTool, activeTile, activeBrush]);
 
   React.useEffect(() => {
     getSetting<BrushOption | null>('activeTile', null)

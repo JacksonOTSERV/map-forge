@@ -24,6 +24,7 @@ export interface Thing {
   hasOffset: boolean;
   hasElevation: boolean;
   stackable: boolean;
+  hangable: boolean;
   isUnpassable: boolean;
   miniMap: boolean;
   miniMapColor: number;

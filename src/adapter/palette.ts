@@ -73,6 +73,73 @@ function expandRange(item: Element): number[] {
 export type BrushRef = { kind: BrushKind; look?: number; paint?: number };
 type BrushIndex = Map<string, BrushRef>;
 
+export interface ItemBrushRef {
+  name: string;
+  kind: BrushKind;
+  look?: number;
+  paint?: number;
+}
+
+let itemBrushIndex = new Map<number, ItemBrushRef>();
+
+export function brushForItem(serverId: number): ItemBrushRef | null {
+  return itemBrushIndex.get(serverId) ?? null;
+}
+
+function parseBorderItems(doc: Document): Map<number, number[]> {
+  const map = new Map<number, number[]>();
+  for (const border of topLevel(doc, 'border')) {
+    const id = numAttr(border, 'id');
+    if (id == null) continue;
+    const ids: number[] = [];
+    for (const bi of directChildren(border, 'borderitem')) {
+      const item = numAttr(bi, 'item');
+      if (item != null) ids.push(item);
+    }
+    map.set(id, ids);
+  }
+  return map;
+}
+
+function buildItemBrushIndex(groundsDoc: Document, doodadsDoc: Document, borderItems: Map<number, number[]>): Map<number, ItemBrushRef> {
+  const idx = new Map<number, ItemBrushRef>();
+  const set = (id: number, ref: ItemBrushRef) => {
+    if (!idx.has(id)) idx.set(id, ref);
+  };
+  const grounds = topLevel(groundsDoc, 'brush');
+  const groundRef = (el: Element, name: string): ItemBrushRef => ({
+    name,
+    kind: 'ground',
+    look: brushLook(el),
+    paint: groundPaintId(el)
+  });
+  for (const el of grounds) {
+    const name = el.getAttribute('name');
+    if (!name) continue;
+    const ref = groundRef(el, name);
+    for (const item of directChildren(el, 'item')) for (const id of expandRange(item)) set(id, ref);
+  }
+  for (const el of grounds) {
+    const name = el.getAttribute('name');
+    if (!name) continue;
+    const ref = groundRef(el, name);
+    for (const bEl of [...directChildren(el, 'border'), ...directChildren(el, 'optional')]) {
+      const bid = numAttr(bEl, 'id');
+      if (bid == null) continue;
+      for (const iid of borderItems.get(bid) ?? []) set(iid, ref);
+    }
+  }
+  for (const el of topLevel(doodadsDoc, 'brush')) {
+    if (el.getAttribute('type') !== 'doodad') continue;
+    const name = el.getAttribute('name');
+    if (!name) continue;
+    const look = brushLook(el);
+    const ref: ItemBrushRef = { name, kind: 'doodad', look, paint: look };
+    for (const item of el.querySelectorAll('item')) for (const id of expandRange(item)) set(id, ref);
+  }
+  return idx;
+}
+
 export async function loadBrushIndex(dir = defaultDataDir()): Promise<BrushIndex> {
   const [groundsDoc, wallsDoc, doodadsDoc] = await Promise.all([
     readXml(dir, 'grounds.xml'),
@@ -210,14 +277,17 @@ async function allServerIds(): Promise<number[]> {
 }
 
 export async function loadPalette(dir = defaultDataDir(), items?: Map<number, Thing>): Promise<PaletteData> {
-  const [tilesetsDoc, groundsDoc, wallsDoc, doodadsDoc, creaturesDoc, serverIds] = await Promise.all([
+  const [tilesetsDoc, groundsDoc, wallsDoc, doodadsDoc, creaturesDoc, bordersDoc, serverIds] = await Promise.all([
     readXml(dir, 'tilesets.xml'),
     readXml(dir, 'grounds.xml'),
     readXml(dir, 'walls.xml'),
     readXml(dir, 'doodads.xml'),
     readXml(dir, 'creatures.xml'),
+    readXml(dir, 'borders.xml').catch(() => null),
     allServerIds()
   ]);
+
+  itemBrushIndex = buildItemBrushIndex(groundsDoc, doodadsDoc, bordersDoc ? parseBorderItems(bordersDoc) : new Map());
 
   const flagIndex = items ? await buildFlagIndex(serverIds, items) : undefined;
 
