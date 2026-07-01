@@ -232,6 +232,7 @@ const TilesetEditor = () => {
       if (b.id != null && !borderIdSet.has(b.id)) out.push(`border #${b.id} not found`);
       if (b.to && b.to !== 'none' && !nameSet.has(b.to)) out.push(`neighbor "${b.to}" not found`);
     }
+    if (g.optionalId != null && !borderIdSet.has(g.optionalId)) out.push(`optional border #${g.optionalId} not found`);
     for (const f of g.friends) if (!nameSet.has(f)) out.push(`friend "${f}" not found`);
     return out;
   };
@@ -271,7 +272,7 @@ const TilesetEditor = () => {
       title: 'Borders',
       rows: borders.map((b, i) => ({
         idx: i,
-        label: b.name ?? `Border ${b.id}${b.group != null ? ` (g${b.group})` : ''}`,
+        label: `${b.name ?? `Border ${b.id}`}${b.group != null ? ` (g${b.group})` : ''}${b.type === 'optional' ? ' [optional]' : ''}`,
         serverId: borderRep(b),
         issues: []
       }))
@@ -578,7 +579,7 @@ const TilesetEditor = () => {
 
   const createGroundEntry = () => {
     const name = uniqueGroundName('new ground');
-    const ng: GroundBrush = { name, serverLookid: null, zOrder: null, items: [], borders: [], friends: [] };
+    const ng: GroundBrush = { name, serverLookid: null, zOrder: null, items: [], borders: [], friends: [], optionalId: null, soloOptional: false };
     const selBefore = sel;
     setGrounds((arr) => [...arr, ng]);
     setCategory('ground');
@@ -699,7 +700,7 @@ const TilesetEditor = () => {
   const nextBorderId = () => borders.reduce((m, b) => Math.max(m, b.id), 0) + 1;
 
   const createBorder = () => {
-    const nb: BorderDef = { id: nextBorderId(), group: null, name: null, items: {} };
+    const nb: BorderDef = { id: nextBorderId(), group: null, name: null, type: null, items: {} };
     setCategory('border');
     commitBorders([...borders, nb], { type: 'border', index: borders.length });
   };

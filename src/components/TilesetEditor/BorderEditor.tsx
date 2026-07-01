@@ -151,6 +151,19 @@ const BorderEditor = ({ border, onChange }: BorderEditorProps) => {
 
   return (
     <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-background px-3 py-1.5">
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-foreground">
+          <input
+            type="checkbox"
+            checked={border.type === 'optional'}
+            className="h-3.5 w-3.5 cursor-pointer accent-primary"
+            onChange={(e) => onChange({ ...border, type: e.target.checked ? 'optional' : null })}
+          />
+          Optional border
+          <span className="text-[10px] text-muted-foreground">(gravel overlay, e.g. mountain)</span>
+        </label>
+        {border.group != null && <span className="font-mono text-[10px] text-muted-foreground">group {border.group}</span>}
+      </div>
       <BorderPreview border={border} layouts={layouts} version={version} />
       <div className="relative mx-auto" style={{ width: 360, height: 352 }}>
         {PLACED.map((slot) => {

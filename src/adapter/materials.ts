@@ -9,6 +9,7 @@ export interface BorderDef {
   id: number;
   group: number | null;
   name: string | null;
+  type: string | null;
   items: Partial<Record<BorderEdge, number>>;
 }
 
@@ -21,6 +22,8 @@ export interface BorderRef {
   align: string;
   id: number | null;
   to: string | null;
+  groundEquivalent: number | null;
+  super: boolean;
 }
 
 export interface GroundBrush {
@@ -30,6 +33,8 @@ export interface GroundBrush {
   items: GroundItem[];
   borders: BorderRef[];
   friends: string[];
+  optionalId: number | null;
+  soloOptional: boolean;
 }
 
 export interface NamedBrush {
@@ -113,7 +118,13 @@ export function parseBorders(text: string): BorderDef[] {
       const item = numAttr(bi, 'item');
       if (edge && item != null && (BORDER_EDGES as readonly string[]).includes(edge)) items[edge] = item;
     }
-    out.push({ id, group: numAttr(el, 'group'), name: el.getAttribute('name')?.trim() || null, items });
+    out.push({
+      id,
+      group: numAttr(el, 'group'),
+      name: el.getAttribute('name')?.trim() || null,
+      type: el.getAttribute('type')?.trim() || null,
+      items
+    });
   }
   return out;
 }
@@ -127,7 +138,8 @@ export function serializeBorders(defs: BorderDef[]): string {
   for (const b of defs) {
     const group = b.group != null ? ` group="${b.group}"` : '';
     const name = b.name ? ` name="${escapeAttr(b.name)}"` : '';
-    lines.push(`\t<border id="${b.id}"${group}${name}>`);
+    const type = b.type ? ` type="${escapeAttr(b.type)}"` : '';
+    lines.push(`\t<border id="${b.id}"${group}${name}${type}>`);
     for (const edge of BORDER_EDGES) {
       const item = b.items[edge];
       if (item != null) lines.push(`\t\t<borderitem edge="${edge}" item="${item}"/>`);
@@ -161,16 +173,25 @@ export function parseGrounds(text: string): GroundBrush[] {
     const borders: BorderRef[] = [];
     for (const b of el.querySelectorAll('border')) {
       if (!b.hasAttribute('align')) continue;
-      borders.push({ align: b.getAttribute('align') ?? 'outer', id: numAttr(b, 'id'), to: b.getAttribute('to') });
+      borders.push({
+        align: b.getAttribute('align') ?? 'outer',
+        id: numAttr(b, 'id'),
+        to: b.getAttribute('to'),
+        groundEquivalent: numAttr(b, 'ground_equivalent'),
+        super: b.getAttribute('super') === 'true'
+      });
     }
     const friends: string[] = [];
     for (const f of el.querySelectorAll('friend')) {
       const fn = f.getAttribute('name');
       if (fn) friends.push(fn);
     }
+    const optionalEl = [...el.children].find((c) => c.tagName.toLowerCase() === 'optional');
+    const optionalId = optionalEl ? numAttr(optionalEl, 'id') : null;
+    const soloOptional = el.getAttribute('solo_optional') === 'true';
     const serverLookid = numAttr(el, 'server_lookid') ?? numAttr(el, 'lookid');
     if (items.length === 0 && serverLookid == null) continue;
-    out.push({ name, serverLookid, zOrder: numAttr(el, 'z-order'), items, borders, friends });
+    out.push({ name, serverLookid, zOrder: numAttr(el, 'z-order'), items, borders, friends, optionalId, soloOptional });
   }
   return out;
 }
@@ -189,11 +210,13 @@ function applyGroundToEl(doc: Document, el: Element, brush: GroundBrush): void {
   if (lookid != null) el.setAttribute('server_lookid', String(lookid));
   if (brush.zOrder != null) el.setAttribute('z-order', String(brush.zOrder));
   else el.removeAttribute('z-order');
+  if (brush.soloOptional) el.setAttribute('solo_optional', 'true');
+  else el.removeAttribute('solo_optional');
 
   const preserved: Element[] = [];
   for (const c of [...el.children]) {
     const tag = c.tagName.toLowerCase();
-    if (tag === 'item' || tag === 'friend' || (tag === 'border' && c.hasAttribute('align'))) continue;
+    if (tag === 'item' || tag === 'friend' || tag === 'optional' || (tag === 'border' && c.hasAttribute('align'))) continue;
     preserved.push(c);
   }
   while (el.firstChild) el.removeChild(el.firstChild);
@@ -210,14 +233,21 @@ function applyGroundToEl(doc: Document, el: Element, brush: GroundBrush): void {
   }
   for (const b of brush.borders) {
     const n = doc.createElement('border');
+    if (b.super) n.setAttribute('super', 'true');
     n.setAttribute('align', b.align);
     if (b.to != null) n.setAttribute('to', b.to);
     if (b.id != null) n.setAttribute('id', String(b.id));
+    if (b.groundEquivalent != null) n.setAttribute('ground_equivalent', String(b.groundEquivalent));
     add(n);
   }
   for (const f of brush.friends) {
     const n = doc.createElement('friend');
     n.setAttribute('name', f);
+    add(n);
+  }
+  if (brush.optionalId != null) {
+    const n = doc.createElement('optional');
+    n.setAttribute('id', String(brush.optionalId));
     add(n);
   }
   for (const p of preserved) add(p);
