@@ -145,7 +145,7 @@ export const useAssets = (): AssetsState => {
         const parts = [`${a.spritesCount} sprites`];
         if (a.otbItemCount > 0) parts.push(`${a.otbItemCount} items`);
         if (!pal) parts.push('no materials');
-        setStatus(`Assets ready - ${parts.join(', ')}. Open a map to begin.`);
+        setStatus(`Assets ready (${v}) - ${parts.join(', ')}. Open a map to begin.`);
       } catch (e) {
         if (cancelled) return;
         setAssetsMissing(true);
