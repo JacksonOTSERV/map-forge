@@ -38,6 +38,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
   const [autoCreateSpawn, setAutoCreateSpawn] = React.useState(defaultEditorConfig.autoCreateSpawn);
   const [eraseMonsters, setEraseMonsters] = React.useState(defaultEditorConfig.eraseMonsters);
   const [eraseSpawns, setEraseSpawns] = React.useState(defaultEditorConfig.eraseSpawns);
+  const [defaultFloor, setDefaultFloor] = React.useState(defaultEditorConfig.defaultFloor);
   const [copyPositionFormat, setCopyPositionFormat] = React.useState(defaultGeneralConfig.copyPositionFormat);
   const [infiniteMouse, setInfiniteMouse] = React.useState(defaultGeneralConfig.infiniteMouse);
 
@@ -55,6 +56,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       setAutoCreateSpawn(e.autoCreateSpawn);
       setEraseMonsters(e.eraseMonsters);
       setEraseSpawns(e.eraseSpawns);
+      setDefaultFloor(e.defaultFloor);
     });
   }, []);
 
@@ -113,6 +115,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       autoCreateSpawn,
       eraseMonsters,
       eraseSpawns,
+      defaultFloor,
       copyPositionFormat,
       infiniteMouse,
       zoneVisibility,
@@ -152,6 +155,7 @@ export const EditorSettingsProvider = ({ children }: EditorSettingsProviderProps
       autoCreateSpawn,
       eraseMonsters,
       eraseSpawns,
+      defaultFloor,
       copyPositionFormat,
       infiniteMouse,
       zoneVisibility,

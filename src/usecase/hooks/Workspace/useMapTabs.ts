@@ -3,8 +3,8 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 
 import { MapMeta } from '~/domain/map';
 import { snapZoom } from '~/usecase/zoom';
-import { loadGeneralConfig } from '~/adapter/preferences';
 import { getMapView, setMapView } from '~/adapter/mapViews';
+import { loadEditorConfig, loadGeneralConfig } from '~/adapter/preferences';
 import { registeredFormats, itemNames as fetchItemNames } from '~/adapter/scripts';
 import { addRecentMap, loadRecentMaps, clearRecentMaps } from '~/adapter/recentMaps';
 import { newOtbm, openOtbm, closeMap, saveOtbm, backupMap, openScriptedMap, saveScriptedMap } from '~/adapter/map';
@@ -241,9 +241,10 @@ export const useMapTabs = (
       }
       const name = path.split(/[\\/]/).pop() ?? 'map';
       const saved = await getMapView(path);
+      const defFloor = (await loadEditorConfig()).defaultFloor;
       const initial = saved
         ? { center: { x: saved.cx, y: saved.cy }, zoom: saved.zoom, floor: saved.floor }
-        : { center: { x: data.center.x, y: data.center.y }, zoom: 1, floor: data.center.floor };
+        : { center: { x: data.center.x, y: data.center.y }, zoom: 1, floor: defFloor };
       addTab(name, data, tabItems, path, initial);
       const dims = `${data.bounds.minX}..${data.bounds.maxX} x ${data.bounds.minY}..${data.bounds.maxY}`;
       setStatus(`${name} - ${data.tileCount} tiles - ${dims} - ${data.width}x${data.height}`);
@@ -281,7 +282,12 @@ export const useMapTabs = (
       const used = new Set(tabs.map((t) => t.title));
       let n = 1;
       while (used.has(`untitled-${n}`)) n++;
-      addTab(`untitled-${n}`, data, items);
+      const defFloor = (await loadEditorConfig()).defaultFloor;
+      addTab(`untitled-${n}`, data, items, undefined, {
+        center: { x: data.center.x, y: data.center.y },
+        zoom: 1,
+        floor: defFloor
+      });
       setError(null);
       setStatus(`New map - ${data.width}x${data.height}`);
     } catch (e) {

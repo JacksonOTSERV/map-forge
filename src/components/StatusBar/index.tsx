@@ -3,11 +3,11 @@ import { Layers, ZoomIn, ZoomOut } from 'lucide-react';
 
 import { stepZoom } from '~/usecase/zoom';
 import { HoverInfo, HoverItem } from '~/components/MapCanvas/types';
+import { useEditorSettings } from '~/usecase/context/EditorSettingsContext';
 import { Select, SelectItem, SelectContent, SelectTrigger } from '~/components/commons/ui/select';
 
 const MIN_FLOOR = 0;
 const MAX_FLOOR = 15;
-const SEA_LEVEL = 7;
 const FLOORS = Array.from({ length: MAX_FLOOR - MIN_FLOOR + 1 }, (_, i) => MIN_FLOOR + i);
 
 export interface StatusBarApi {
@@ -54,6 +54,7 @@ const SelectedDescription = ({ item }: { item: HoverItem }) => {
 };
 
 const StatusBar = ({ status, apiRef, floorZ, zoom, onFloorChange, onZoomChange }: StatusBarProps) => {
+  const { defaultFloor: SEA_LEVEL } = useEditorSettings();
   const [hover, setHover] = React.useState<HoverInfo | null>(null);
   const [selectedItem, setSelectedItem] = React.useState<HoverItem | null>(null);
   const [flash, setFlash] = React.useState<string | null>(null);

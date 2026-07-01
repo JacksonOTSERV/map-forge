@@ -80,12 +80,14 @@ export interface EditorConfig {
   autoCreateSpawn: boolean;
   eraseMonsters: boolean;
   eraseSpawns: boolean;
+  defaultFloor: number;
 }
 
 export const defaultEditorConfig: EditorConfig = {
   autoCreateSpawn: true,
   eraseMonsters: true,
-  eraseSpawns: true
+  eraseSpawns: true,
+  defaultFloor: 7
 };
 
 export async function loadEditorConfig(): Promise<EditorConfig> {
