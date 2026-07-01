@@ -1,6 +1,6 @@
 import { DEFAULT_MAX_STACK } from '~/domain/dock';
-import { DEFAULT_VERSION } from '~/adapter/assets';
 import { getSetting, setSetting } from '~/adapter/settings';
+import { DATA_DIR_KEY, DEFAULT_VERSION } from '~/adapter/assets';
 import { DEFAULT_COPY_POSITION_FORMAT } from '~/usecase/positionFormat';
 
 const KEY = 'clientConfig';
@@ -12,6 +12,14 @@ export async function loadAssetPath(key: string): Promise<string> {
 
 export async function saveAssetPath(key: string, path: string): Promise<void> {
   await setSetting(key, path);
+}
+
+export async function loadDataDir(): Promise<string> {
+  return getSetting<string>(DATA_DIR_KEY, '');
+}
+
+export async function saveDataDir(path: string): Promise<void> {
+  await setSetting(DATA_DIR_KEY, path);
 }
 
 export interface ClientConfig {

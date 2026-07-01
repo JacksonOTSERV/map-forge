@@ -24,9 +24,9 @@ mod scripting;
 
 use formats::tibia::client_version::peek_otbm_version;
 use commands::{
-	all_server_ids, backup_map, close_spr_file, default_data_dir, load_materials, load_otb, map_client_ids, open_data_dir, open_spr_file,
-	open_url, parse_dat_file_bin, read_file, read_file_header, read_file_text, read_sprites_batch_rgba, read_sprites_rgba,
-	read_sprites_rgba_lz4, set_window_acrylic, write_file_text,
+	all_server_ids, backup_map, close_spr_file, copy_data_dir, default_data_dir, default_data_root, load_materials, load_otb,
+	map_client_ids, open_data_dir, open_spr_file, open_url, parse_dat_file_bin, read_file, read_file_header, read_file_text,
+	read_sprites_batch_rgba, read_sprites_rgba, read_sprites_rgba_lz4, set_window_acrylic, write_file_text,
 };
 use creatures::{
 	creature_dirs, resolve_creature_dirs, resolve_items_dir, scan_creatures, unwatch_creatures, watch_creatures,
@@ -133,6 +133,8 @@ pub fn run() {
 			backup_map,
 			read_file_header,
 			default_data_dir,
+			default_data_root,
+			copy_data_dir,
 			open_data_dir,
 			open_url,
 			open_spr_file,

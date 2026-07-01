@@ -6,21 +6,31 @@ import { Input } from '~/components/commons/ui/input';
 import { Button } from '~/components/commons/ui/button';
 import EditorTab from '~/components/Preferences/EditorTab';
 import GeneralTab from '~/components/Preferences/GeneralTab';
+import { copyDataDir, defaultDataRoot } from '~/adapter/assets';
 import ClientVersionTab from '~/components/Preferences/ClientVersionTab';
 import { uiConfig, UiConfig, loadScriptedAssets } from '~/adapter/scripts';
-import { Dialog, DialogTitle, DialogHeader, DialogFooter, DialogContent } from '~/components/commons/ui/dialog';
 import {
+  Dialog,
+  DialogTitle,
+  DialogHeader,
+  DialogFooter,
+  DialogContent,
+  DialogDescription
+} from '~/components/commons/ui/dialog';
+import {
+  loadDataDir,
+  saveDataDir,
   ClientConfig,
   EditorConfig,
   GeneralConfig,
+  loadAssetPath,
+  saveAssetPath,
   loadClientConfig,
   loadEditorConfig,
   saveClientConfig,
   saveEditorConfig,
   loadGeneralConfig,
   saveGeneralConfig,
-  loadAssetPath,
-  saveAssetPath,
   defaultClientConfig,
   defaultEditorConfig,
   defaultGeneralConfig
@@ -46,6 +56,10 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
   const [editor, setEditor] = React.useState<EditorConfig>(defaultEditorConfig);
   const [assetPath, setAssetPath] = React.useState('');
   const [assetStatus, setAssetStatus] = React.useState('');
+  const [dataDir, setDataDir] = React.useState('');
+  const [pendingDataDir, setPendingDataDir] = React.useState<string | null>(null);
+  const [dataError, setDataError] = React.useState('');
+  const [moving, setMoving] = React.useState(false);
 
   React.useEffect(() => {
     if (!dialogOpen) return;
@@ -59,7 +73,43 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
     void loadClientConfig().then(setConfig);
     void loadGeneralConfig().then(setGeneral);
     void loadEditorConfig().then(setEditor);
+    void loadDataDir().then(setDataDir);
   }, [dialogOpen, initialTab]);
+
+  const pickDataDir = async () => {
+    const selected = await open({ multiple: false, directory: true, title: 'Select data folder' });
+    if (!selected || typeof selected !== 'string' || selected === dataDir) return;
+    setDataError('');
+    setPendingDataDir(selected);
+  };
+
+  const applyDataDir = async (copy: boolean) => {
+    const target = pendingDataDir;
+    if (!target) return;
+    setMoving(true);
+    setDataError('');
+    try {
+      if (copy) {
+        const from = dataDir.trim() || (await defaultDataRoot());
+        await copyDataDir(from, target);
+      }
+      await saveDataDir(target);
+      setDataDir(target);
+      setPendingDataDir(null);
+      onSaved?.();
+    } catch (e) {
+      setDataError(`${e}`);
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  const resetDataDir = () => {
+    void saveDataDir('').then(() => {
+      setDataDir('');
+      onSaved?.();
+    });
+  };
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'general', label: 'General' },
@@ -96,58 +146,91 @@ const Preferences = ({ open: dialogOpen, initialTab = 'general', onSaved, onRese
   };
 
   return (
-    <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Preferences</DialogTitle>
-        </DialogHeader>
-        <div className="flex items-center gap-1 border-b border-border px-3">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={cn(
-                '-mb-px border-b-2 px-2 py-2 text-xs font-medium transition-colors',
-                activeTab === t.id
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {activeTab === 'general' && (
-            <GeneralTab config={general} onChange={setGeneral} onResetLayout={() => onResetLayout?.()} />
-          )}
-          {activeTab === 'editor' && <EditorTab config={editor} onChange={setEditor} />}
-          {activeTab === 'client' && <ClientVersionTab config={config} onChange={setConfig} />}
-          {activeTab === 'assets' && ui.assets && (
-            <div className="flex flex-col gap-3">
-              <label className="flex flex-col gap-1.5 text-xs font-medium text-foreground">
-                {ui.assets.label} file
-                <div className="flex gap-2">
-                  <Input readOnly value={assetPath} placeholder={`Select a .${ui.assets.ext} file`} />
-                  <Button size="sm" onClick={pickAssets}>
-                    Browse...
-                  </Button>
-                </div>
-              </label>
-              {assetStatus && <span className="text-xs text-muted-foreground">{assetStatus}</span>}
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={save}>
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Preferences</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-1 border-b border-border px-3">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  '-mb-px border-b-2 px-2 py-2 text-xs font-medium transition-colors',
+                  activeTab === t.id
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {activeTab === 'general' && (
+              <GeneralTab
+                config={general}
+                dataDir={dataDir}
+                onChange={setGeneral}
+                onResetDataDir={resetDataDir}
+                onResetLayout={() => onResetLayout?.()}
+                onPickDataDir={() => void pickDataDir()}
+              />
+            )}
+            {activeTab === 'editor' && <EditorTab config={editor} onChange={setEditor} />}
+            {activeTab === 'client' && <ClientVersionTab config={config} onChange={setConfig} />}
+            {activeTab === 'assets' && ui.assets && (
+              <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1.5 text-xs font-medium text-foreground">
+                  {ui.assets.label} file
+                  <div className="flex gap-2">
+                    <Input readOnly value={assetPath} placeholder={`Select a .${ui.assets.ext} file`} />
+                    <Button size="sm" onClick={pickAssets}>
+                      Browse...
+                    </Button>
+                  </div>
+                </label>
+                {assetStatus && <span className="text-xs text-muted-foreground">{assetStatus}</span>}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={save}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingDataDir !== null} onOpenChange={(o) => !o && !moving && setPendingDataDir(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Copy data folder?</DialogTitle>
+            <DialogDescription>
+              Copy the current data folder into <span className="break-all text-foreground">{pendingDataDir}</span>? The bundled
+              files stay in place. Choose Don't copy to point at it without copying (it must already contain the version folders).
+            </DialogDescription>
+          </DialogHeader>
+          {dataError && <span className="break-all text-xs text-destructive">{dataError}</span>}
+          <DialogFooter>
+            <Button size="sm" variant="ghost" disabled={moving} onClick={() => setPendingDataDir(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="outline" disabled={moving} onClick={() => void applyDataDir(false)}>
+              Don't copy
+            </Button>
+            <Button size="sm" disabled={moving} onClick={() => void applyDataDir(true)}>
+              {moving ? 'Copying...' : 'Copy'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 

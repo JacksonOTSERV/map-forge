@@ -71,18 +71,60 @@ pub async fn backup_map(path: String, keep: u32) -> Result<(), String> {
 	Ok(())
 }
 
-pub fn data_dir_for(version: u32, client_data: Option<String>) -> String {
+pub fn data_dir_for(version: u32, client_data: Option<String>, custom_root: Option<String>) -> String {
 	let exe = std::env::current_exe().ok();
 	let exe_dir = exe.as_deref().and_then(|e| e.parent());
-	let sub = client_data.unwrap_or_else(|| format!("data{}{}", std::path::MAIN_SEPARATOR, version));
-	exe_dir
-		.map(|b| b.join(&sub).to_string_lossy().into_owned())
-		.unwrap_or(sub)
+	if let Some(cd) = client_data {
+		return exe_dir.map(|b| b.join(&cd).to_string_lossy().into_owned()).unwrap_or(cd);
+	}
+	let root = custom_root.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+	if let Some(root) = root {
+		return PathBuf::from(root).join(version.to_string()).to_string_lossy().into_owned();
+	}
+	let sub = format!("data{}{}", std::path::MAIN_SEPARATOR, version);
+	exe_dir.map(|b| b.join(&sub).to_string_lossy().into_owned()).unwrap_or(sub)
 }
 
 #[tauri::command]
-pub fn default_data_dir(version: u32, lua_state: tauri::State<crate::lua_host::LuaState>) -> String {
-	data_dir_for(version, crate::lua_format::lua_app_config(&lua_state).client_data)
+pub fn default_data_dir(version: u32, custom_root: Option<String>, lua_state: tauri::State<crate::lua_host::LuaState>) -> String {
+	data_dir_for(version, crate::lua_format::lua_app_config(&lua_state).client_data, custom_root)
+}
+
+#[tauri::command]
+pub fn default_data_root() -> String {
+	let exe = std::env::current_exe().ok();
+	let exe_dir = exe.as_deref().and_then(|e| e.parent());
+	exe_dir
+		.map(|b| b.join("data").to_string_lossy().into_owned())
+		.unwrap_or_else(|| "data".to_string())
+}
+
+#[tauri::command]
+pub fn copy_data_dir(from: String, to: String) -> Result<(), String> {
+	let src = PathBuf::from(&from);
+	let dst = PathBuf::from(&to);
+	if src == dst {
+		return Ok(());
+	}
+	if !src.is_dir() {
+		return Err(format!("source {} is not a folder", from));
+	}
+	copy_path(&src, &dst)
+}
+
+fn copy_path(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+	if src.is_dir() {
+		fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+		for entry in fs::read_dir(src).map_err(|e| e.to_string())?.flatten() {
+			copy_path(&entry.path(), &dst.join(entry.file_name()))?;
+		}
+	} else {
+		if let Some(parent) = dst.parent() {
+			fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+		}
+		fs::copy(src, dst).map_err(|e| e.to_string())?;
+	}
+	Ok(())
 }
 
 #[tauri::command]
