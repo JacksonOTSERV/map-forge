@@ -80,7 +80,7 @@ export function useMapCamera(
       x: (initialRef.current.x + 0.5) * TILE - canvas.clientWidth / (2 * z),
       y: (initialRef.current.y + 0.5) * TILE - canvas.clientHeight / (2 * z)
     };
-  }, [map, canvasRef]);
+  }, [map.id, canvasRef]);
 
   React.useEffect(() => {
     if (zoom === appliedZoom.current) return;

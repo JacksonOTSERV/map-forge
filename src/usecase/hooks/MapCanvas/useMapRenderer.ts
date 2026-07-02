@@ -273,8 +273,10 @@ export function useMapRenderer(deps: RendererDeps) {
     const imp = scene.importGhost.current;
     const hoverImp = scene.hoveredTile.current;
     if (imp && hoverImp) {
-      const rx = (hoverImp.x * TILE - camX) * zoom;
-      const ry = (hoverImp.y * TILE - camY) * zoom;
+      const ax = Math.max(0, Math.min(hoverImp.x, 65536 - imp.width));
+      const ay = Math.max(0, Math.min(hoverImp.y, 65536 - imp.height));
+      const rx = (ax * TILE - camX) * zoom;
+      const ry = (ay * TILE - camY) * zoom;
       const rw = imp.width * TILE * zoom;
       const rh = imp.height * TILE * zoom;
       ctx.save();

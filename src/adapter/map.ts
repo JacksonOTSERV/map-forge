@@ -295,6 +295,8 @@ export interface ImportResult {
   teleportsOffset: number;
   townsMerged: number;
   waypointsMerged: number;
+  bounds: [number, number, number, number];
+  floors: number[];
 }
 
 export async function importLoad(path: string): Promise<ImportInfo> {

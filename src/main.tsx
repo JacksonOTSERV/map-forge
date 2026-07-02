@@ -352,7 +352,8 @@ const App = () => {
     clearRecent,
     setFloorZ,
     setZoom,
-    setView
+    setView,
+    patchActiveMap
   } = useMapTabs(assets, { setStatus, setError, onAfterSave: persistSidecars, version, switchVersion });
 
   activeIdRef.current = activeId;
@@ -499,8 +500,12 @@ const App = () => {
       if (!ctx) return;
       importCtx.current = null;
       setImportGhost(null);
-      const dx = Math.max(-ctx.minX, Math.min(65535 - ctx.maxX, pos.x - ctx.minX));
-      const dy = Math.max(-ctx.minY, Math.min(65535 - ctx.maxY, pos.y - ctx.minY));
+      const w = ctx.maxX - ctx.minX + 1;
+      const h = ctx.maxY - ctx.minY + 1;
+      const ax = Math.max(0, Math.min(pos.x, 65536 - w));
+      const ay = Math.max(0, Math.min(pos.y, 65536 - h));
+      const dx = ax - ctx.minX;
+      const dy = ay - ctx.minY;
       const dz = 0;
 
       const existing = housesRef.current ?? { list: [] };
@@ -531,6 +536,10 @@ const App = () => {
           importTowns: true,
           importWaypoints: true,
           importHouses: true
+        });
+        patchActiveMap({
+          bounds: { minX: result.bounds[0], minY: result.bounds[1], maxX: result.bounds[2], maxY: result.bounds[3] },
+          floors: result.floors
         });
         mapRefetchRef.current?.(result.touched);
 
@@ -580,7 +589,7 @@ const App = () => {
         setImportBusy(null);
       }
     },
-    [activeMapId, handleStatus, markActiveDirty, setHouses, setSpawns]
+    [activeMapId, handleStatus, markActiveDirty, patchActiveMap, setHouses, setSpawns]
   );
 
   const handleImportCancel = React.useCallback(() => {

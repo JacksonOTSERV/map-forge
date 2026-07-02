@@ -56,6 +56,7 @@ export interface MapTabsApi {
   setFloorZ: (z: number) => void;
   setZoom: (z: number) => void;
   setView: (cx: number, cy: number) => void;
+  patchActiveMap: (patch: Partial<MapMeta>) => void;
 }
 
 export const useMapTabs = (
@@ -170,6 +171,9 @@ export const useMapTabs = (
         return next;
       })
     );
+
+  const patchActiveMap = (patch: Partial<MapMeta>) =>
+    setTabs((prev) => prev.map((t) => (t.id === activeId ? { ...t, map: { ...t.map, ...patch } } : t)));
 
   const setFloorZ = (z: number) => updateActive({ floorZ: z });
   const setZoom = (z: number) => updateActive({ zoom: snapZoom(z) });
@@ -371,6 +375,7 @@ export const useMapTabs = (
     clearRecent,
     setFloorZ,
     setZoom,
-    setView
+    setView,
+    patchActiveMap
   };
 };

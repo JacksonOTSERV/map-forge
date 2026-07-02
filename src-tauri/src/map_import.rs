@@ -278,6 +278,8 @@ pub struct ImportResult {
 	pub teleports_offset: u32,
 	pub towns_merged: u32,
 	pub waypoints_merged: u32,
+	pub bounds: (u16, u16, u16, u16),
+	pub floors: Vec<u8>,
 }
 
 fn shift_pos(x: u16, y: u16, z: u8, dx: i32, dy: i32, dz: i32) -> Option<(u16, u16, u8)> {
@@ -333,6 +335,21 @@ pub(crate) fn apply_import(
 	};
 	let (touched, tiles_imported) = m.import_overlay(&ops, progress);
 	let touched_set: HashSet<(u8, u32)> = touched.into_iter().collect();
+
+	for t in planned.iter().flatten() {
+		let (nx, ny, nz) = *t;
+		m.min_x = m.min_x.min(nx);
+		m.min_y = m.min_y.min(ny);
+		m.max_x = m.max_x.max(nx);
+		m.max_y = m.max_y.max(ny);
+		if !m.available_floors.contains(&nz) {
+			m.available_floors.push(nz);
+		}
+	}
+	m.available_floors.sort_unstable();
+	m.total_tiles = m.total_tiles.saturating_add(tiles_imported);
+	m.width = m.width.max(m.max_x.saturating_add(1));
+	m.height = m.height.max(m.max_y.saturating_add(1));
 
 	for (&src_key, a) in &stage.item_attrs {
 		let sz = (src_key >> 40) as u8;
@@ -399,6 +416,8 @@ pub(crate) fn apply_import(
 		teleports_offset,
 		towns_merged,
 		waypoints_merged,
+		bounds: (m.min_x, m.min_y, m.max_x, m.max_y),
+		floors: m.available_floors.clone(),
 	})
 }
 
@@ -553,6 +572,31 @@ mod tests {
 		assert_eq!(m.towns[0].x, 150);
 		assert_eq!(m.towns[0].y, 260);
 		assert_eq!(m.waypoints[0].x, 150);
+	}
+
+	#[test]
+	fn import_beyond_bounds_expands_map_bounds() {
+		let mut store = MapStore::default();
+		store.maps.insert(1, empty_model(1024, 1024));
+		let req = ImportCommit {
+			map_id: 1,
+			dx: 5000,
+			dy: 8000,
+			dz: 0,
+			house_id_map: HashMap::new(),
+			import_towns: false,
+			import_waypoints: false,
+			import_houses: true,
+		};
+		let result = apply_import(&mut store, &OtbItems::default(), &make_stage(), &req, &mut |_, _| {}).unwrap();
+		assert_eq!(result.tiles_imported, 1);
+		assert_eq!(result.bounds, (0, 0, 5050, 8060), "bounds grow to include the imported area");
+		assert!(result.floors.contains(&7));
+
+		let m = store.maps.get(&1).unwrap();
+		assert_eq!(m.max_x, 5050);
+		assert_eq!(m.max_y, 8060);
+		assert!(m.available_floors.contains(&7));
 	}
 
 	#[test]
