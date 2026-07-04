@@ -86,7 +86,30 @@ impl Materials {
 			}
 		}
 
-		let raw_grounds = parse::parse_grounds(&read("grounds.xml")?)?;
+		let mut raw_grounds = parse::parse_grounds(&read("grounds.xml")?)?;
+
+		// Some ground brushes (e.g. "sand", "sandstone") define their border tiles
+		// inline via <borderitem> instead of referencing an id from borders.xml.
+		// Synthesise an AutoBorder for each such border and point the brush at it,
+		// so the rest of the pipeline treats it like any other border set.
+		let mut next_synthetic_id: u32 = 1_000_000;
+		for g in &mut raw_grounds {
+			for b in &mut g.borders {
+				if b.inline_items.is_empty() || borders.contains_key(&b.border_id) {
+					continue;
+				}
+				let mut autoborder = AutoBorder::default();
+				for &(edge, sid) in &b.inline_items {
+					autoborder.tiles[edge] = sid;
+				}
+				while borders.contains_key(&next_synthetic_id) {
+					next_synthetic_id += 1;
+				}
+				borders.insert(next_synthetic_id, autoborder);
+				b.border_id = next_synthetic_id;
+				next_synthetic_id += 1;
+			}
+		}
 
 		let mut name_to_id: HashMap<String, u32> = HashMap::new();
 		for (idx, g) in raw_grounds.iter().enumerate() {
@@ -378,6 +401,21 @@ mod tests {
 			t[(TILE_N | TILE_E | TILE_SW) as usize],
 			NORTHEAST_DIAGONAL as u32 | (SOUTHWEST_CORNER as u32) << 8
 		);
+	}
+
+	#[test]
+	fn sand_next_to_sea_produces_inline_border() {
+		let m = Materials::load(&data_dir()).unwrap();
+		let sand = *m.name_to_id.get("sand").unwrap();
+		let sea = *m.name_to_id.get("sea").unwrap();
+		// sand tile with sea to the north should get a coastline border item.
+		let mut neigh = [0u32; 8];
+		neigh[1] = sea; // index 1 == north in NEIGHBOUR_OFFSETS
+		let items = m.calculate_borders(sand, &neigh, false).items;
+		assert!(!items.is_empty(), "sand bordering sea yields inline border items");
+		for sid in &items {
+			assert!(m.is_border_item(*sid), "produced ids are registered border items");
+		}
 	}
 
 	#[test]

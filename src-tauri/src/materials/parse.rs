@@ -28,6 +28,10 @@ pub(crate) struct RawBorderRef {
 	pub(crate) outer: bool,
 	pub(crate) to: ToSpec,
 	pub(crate) border_id: u32,
+	/// Inline `<borderitem edge=.. item=..>` pairs (edge_index, server_id) for
+	/// borders defined directly inside a ground brush instead of referencing an
+	/// `id` from borders.xml. Empty when the border uses an `id`.
+	pub(crate) inline_items: Vec<(usize, u16)>,
 	pub(crate) specifics: Vec<RawSpecific>,
 }
 
@@ -173,8 +177,17 @@ pub(crate) fn parse_grounds(xml: &str) -> Result<Vec<RawGround>, String> {
 						Some(name) => ToSpec::Name(name.to_string()),
 					};
 					let border_id = child.attribute("id").and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+					let inline_items = child
+						.children()
+						.filter(|n| n.has_tag_name("borderitem"))
+						.filter_map(|it| {
+							let edge = it.attribute("edge").and_then(edge_index)?;
+							let sid = it.attribute("item").and_then(|v| v.parse::<u16>().ok())?;
+							Some((edge, sid))
+						})
+						.collect();
 					let specifics = child.children().filter(|n| n.has_tag_name("specific")).map(parse_specific).collect();
-					borders.push(RawBorderRef { outer, to, border_id, specifics });
+					borders.push(RawBorderRef { outer, to, border_id, inline_items, specifics });
 				}
 				"optional" => {
 					if let Some(id) = child.attribute("id").and_then(|v| v.parse::<u32>().ok()) {
